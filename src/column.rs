@@ -13,6 +13,29 @@ impl Column {
             ColumnValues::Float64(col) => col.values.len(),
         };
     }
+
+    pub fn eq_at_indexes(&self, left_idx: usize, right_idx: usize) -> bool {
+        match &self.values {
+            ColumnValues::Text(text_col) => {
+                if self.nulls[left_idx] != self.nulls[right_idx] {
+                    return false;
+                }
+                if self.nulls[left_idx] && text_col.values[left_idx] != text_col.values[right_idx] {
+                    return false;
+                }
+                return true;
+            }
+            ColumnValues::Float64(text_col) => {
+                if self.nulls[left_idx] != self.nulls[right_idx] {
+                    return false;
+                }
+                if self.nulls[left_idx] && text_col.values[left_idx] != text_col.values[right_idx] {
+                    return false;
+                }
+                return true;
+            }
+        }
+    }
 }
 
 impl PartialEq for Column {

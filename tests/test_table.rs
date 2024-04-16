@@ -23,7 +23,7 @@ mod tests {
             "#,
         );
 
-        let serialized = table.to_json();
+        let serialized = table.to_json_str();
         assert_eq!(
             serialized,
             r#"{"columns":[{"name":"text_col","type":"text","values":["val0","val1",null]},{"name":"float_col","type":"float64","values":["1.25",null,null]}]}"#
@@ -201,5 +201,42 @@ mod tests {
 
         assert_eq!(t0, t1);
         assert_eq!(t1, t0);
+    }
+
+    #[test]
+    fn basic_group_and_aggregate() {
+        let t0 = Table::from_json_str(
+            r#"{"columns": [
+                {"name": "g0", "type": "text", "values": [
+                    "a", "a", "b", "b", "c", null, null
+                ]},
+                {"name": "f0", "type": "float64", "values": [
+                    "1", "7", "3", null, null, "5", "6"
+                ]}
+            ]}"#,
+        );
+
+        let t0_agg = t0.group_and_aggregate(
+            &["g0"],
+            &[Aggregation {
+                in_col_name: "f0",
+                out_col_name: "f0_sum",
+                agg_type: AggregationType::Sum,
+            }],
+        );
+
+        let t1 = Table::from_json_str(
+            r#"{"columns": [
+                {"name": "g0", "type": "text", "values": [
+                    "a", "b", "c", null
+                ]},
+                {"name": "f0_sum", "type": "float64", "values": [
+                    "8", "3", null, "11"
+                ]}
+            ]}"#,
+        );
+
+        assert_eq!(t0_agg, t1);
+        assert_eq!(t1, t0_agg);
     }
 }

@@ -239,4 +239,63 @@ mod tests {
         assert_eq!(t0_agg, t1);
         assert_eq!(t1, t0_agg);
     }
+
+    #[test]
+    fn group_on_no_group_fields() {
+        let t0 = Table::from_json_str(
+            r#"{"columns": [
+                {"name": "f0", "type": "float64", "values": [
+                    "1", "2", "3"
+                ]}
+            ]}"#,
+        );
+
+        let t0_agg = t0.group_and_aggregate(
+            &[],
+            &[Aggregation {
+                in_col_name: "f0",
+                out_col_name: "f0_sum",
+                agg_type: AggregationType::Sum,
+            }],
+        );
+
+        let t1 = Table::from_json_str(
+            r#"{"columns": [
+                {"name": "f0_sum", "type": "float64", "values": [
+                    "6"
+                ]}
+            ]}"#,
+        );
+
+        assert_eq!(t0_agg, t1);
+    }
+
+    #[test]
+    fn group_on_no_rows() {
+        let t0 = Table::from_json_str(
+            r#"{"columns": [
+                {"name": "g0", "type": "text", "values": []},
+                {"name": "f0", "type": "float64", "values": []}
+            ]}"#,
+        );
+
+        let t0_agg = t0.group_and_aggregate(
+            &["g0"],
+            &[Aggregation {
+                in_col_name: "f0",
+                out_col_name: "f0_sum",
+                agg_type: AggregationType::Sum,
+            }],
+        );
+
+        let t1 = Table::from_json_str(
+            r#"{"columns": [
+                {"name": "g0", "type": "text", "values": []},
+                {"name": "f0_sum", "type": "float64", "values": []}
+            ]}"#,
+        );
+
+        assert_eq!(t0_agg, t1);
+        assert_eq!(t1, t0_agg);
+    }
 }

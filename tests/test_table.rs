@@ -298,4 +298,35 @@ mod tests {
         assert_eq!(t0_agg, t1);
         assert_eq!(t1, t0_agg);
     }
+
+    #[test]
+    fn select_and_rename() {
+        let t0 = Table::from_json_str(
+            r#"{"columns": [
+                {"name": "f0", "type": "text", "values": ["v0"]},
+                {"name": "f1", "type": "text", "values": ["v1"]},
+                {"name": "f2", "type": "text", "values": ["v2"]}
+            ]}"#,
+        );
+
+        let t1 = t0.select_and_rename(&[
+            FieldSelect {
+                old_name: "f1",
+                new_name: "F1",
+            },
+            FieldSelect {
+                old_name: "f0",
+                new_name: "F0",
+            },
+        ]);
+
+        let tr = Table::from_json_str(
+            r#"{"columns": [
+                {"name": "F1", "type": "text", "values": ["v1"]},
+                {"name": "F0", "type": "text", "values": ["v0"]}
+            ]}"#,
+        );
+
+        assert_eq!(t1, tr);
+    }
 }

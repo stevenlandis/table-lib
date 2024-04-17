@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
+use std::rc::Rc;
 use std::{
     collections::HashMap,
     hash::{DefaultHasher, Hasher},
@@ -18,7 +19,7 @@ pub struct Table {
 #[derive(Debug)]
 struct TableColumnWrapper {
     name: String,
-    column: Column,
+    column: Rc<Column>,
 }
 
 impl PartialEq for Table {
@@ -117,7 +118,7 @@ impl Table {
             col_map.insert(col.name.clone(), columns.len());
             columns.push(TableColumnWrapper {
                 name: col.name.clone(),
-                column: parsed_col,
+                column: Rc::new(parsed_col),
             });
         }
 
@@ -304,7 +305,7 @@ impl Table {
             };
             new_columns.push(TableColumnWrapper {
                 name: col.name.clone(),
-                column: new_col,
+                column: Rc::new(new_col),
             });
         }
 
@@ -346,7 +347,7 @@ impl Table {
             };
             new_columns.push(TableColumnWrapper {
                 name: agg.out_col_name.to_string(),
-                column: out_col,
+                column: Rc::new(out_col),
             });
         }
         let new_col_map = new_columns
@@ -361,6 +362,34 @@ impl Table {
             n_rows: index_groups.len(),
         };
     }
+
+    pub fn select_and_rename(&self, fields: &[FieldSelect]) -> Table {
+        let mut new_columns = Vec::<TableColumnWrapper>::with_capacity(fields.len());
+        let mut new_col_map = HashMap::<String, usize>::with_capacity(fields.len());
+
+        for field in fields {
+            new_col_map.insert(field.new_name.to_string(), new_columns.len());
+            new_columns.push(TableColumnWrapper {
+                name: field.new_name.to_string(),
+                column: self.columns[self.col_map[field.old_name]].column.clone(),
+            });
+        }
+
+        return Table {
+            columns: new_columns,
+            col_map: new_col_map,
+            n_rows: self.n_rows,
+        };
+    }
+
+    // pub fn join_and_select(&self, other: &Self, join_on: &[(&str, &str)]) -> Table {
+    //     //
+    // }
+}
+
+pub struct FieldSelect<'a> {
+    pub old_name: &'a str,
+    pub new_name: &'a str,
 }
 
 pub struct Aggregation<'a> {

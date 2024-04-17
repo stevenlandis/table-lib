@@ -310,11 +310,11 @@ mod tests {
         );
 
         let t1 = t0.select_and_rename(&[
-            FieldSelect {
+            RenameCol {
                 old_name: "f1",
                 new_name: "F1",
             },
-            FieldSelect {
+            RenameCol {
                 old_name: "f0",
                 new_name: "F0",
             },
@@ -328,5 +328,116 @@ mod tests {
         );
 
         assert_eq!(t1, tr);
+    }
+
+    #[test]
+    fn basic_augment() {
+        let t0 = Table::from_json_str(
+            r#"{"columns": [
+                {"name": "f0", "type": "text", "values": ["f0_a", "f0_b"]},
+                {"name": "left_join_col", "type": "text", "values": ["v1", "v2"]}
+            ]}"#,
+        );
+
+        let t1 = Table::from_json_str(
+            r#"{"columns": [
+                {"name": "right_join_col", "type": "text", "values": ["v2", "v1"]},
+                {"name": "f1", "type": "text", "values": ["f1_b", "f1_a"]}
+            ]}"#,
+        );
+
+        let t2 = t0.augment(
+            &t1,
+            &[("left_join_col", "right_join_col")],
+            &[RenameCol {
+                old_name: "f1",
+                new_name: "F1",
+            }],
+        );
+
+        let tr = Table::from_json_str(
+            r#"{"columns": [
+                {"name": "f0", "type": "text", "values": ["f0_a", "f0_b"]},
+                {"name": "left_join_col", "type": "text", "values": ["v1", "v2"]},
+                {"name": "F1", "type": "text", "values": ["f1_a", "f1_b"]}
+            ]}"#,
+        );
+
+        assert_eq!(t2, tr);
+    }
+
+    #[test]
+    fn augment_with_null() {
+        let t0 = Table::from_json_str(
+            r#"{"columns": [
+                {"name": "f0", "type": "text", "values": ["a", "b", "c"]},
+                {"name": "left_val", "type": "text", "values": ["1l", "2l", "3l"]}
+            ]}"#,
+        );
+
+        let t1 = Table::from_json_str(
+            r#"{"columns": [
+                {"name": "f0", "type": "text", "values": ["a", "c"]},
+                {"name": "right_val", "type": "text", "values": ["1r", "3r"]}
+            ]}"#,
+        );
+
+        let t2 = t0.augment(
+            &t1,
+            &[("f0", "f0")],
+            &[RenameCol {
+                old_name: "right_val",
+                new_name: "right_val",
+            }],
+        );
+
+        let tr = Table::from_json_str(
+            r#"{"columns": [
+                {"name": "f0", "type": "text", "values": ["a", "b", "c"]},
+                {"name": "left_val", "type": "text", "values": ["1l", "2l", "3l"]},
+                {"name": "right_val", "type": "text", "values": ["1r", null, "3r"]}
+            ]}"#,
+        );
+
+        assert_eq!(t2, tr);
+    }
+
+    #[test]
+    fn augment_with_multiple_join_fields() {
+        let t0 = Table::from_json_str(
+            r#"{"columns": [
+                {"name": "f0", "type": "text", "values": ["f0_a", "f0_a", "f0_a"]},
+                {"name": "f1", "type": "text", "values": ["f1_a", "f1_b", "f1_a"]},
+                {"name": "left_val", "type": "text", "values": ["1l", "2l", "3l"]}
+            ]}"#,
+        );
+
+        let t1 = Table::from_json_str(
+            r#"{"columns": [
+                {"name": "F0", "type": "text", "values": ["f0_a", "f0_a", "f0_a", "f0_a"]},
+                {"name": "F1", "type": "text", "values": ["f1_a", "f1_a", "f1_b", "f1_b"]},
+                {"name": "right_val", "type": "text", "values": ["1r", "2r", "3r", "4r"]}
+            ]}"#,
+        );
+
+        let t2 = t0.augment(
+            &t1,
+            &[("f0", "F0"), ("f1", "F1")],
+            &[RenameCol {
+                old_name: "right_val",
+                new_name: "right_val",
+            }],
+        );
+
+        let tr = Table::from_json_str(
+            r#"{"columns": [
+                {"name": "f0", "type": "text", "values": ["f0_a", "f0_a", "f0_a", "f0_a", "f0_a", "f0_a"]},
+                {"name": "f1", "type": "text", "values": ["f1_a", "f1_a", "f1_b", "f1_b", "f1_a", "f1_a"]},
+                {"name": "left_val", "type": "text", "values": ["1l", "1l", "2l", "2l", "3l", "3l"]},
+                {"name": "right_val", "type": "text", "values": ["1r", "2r", "3r", "4r", "1r", "2r"]}
+            ]}"#,
+        );
+
+        assert_eq!(t2, tr);
     }
 }

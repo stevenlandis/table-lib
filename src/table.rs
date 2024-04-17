@@ -177,13 +177,13 @@ impl Table {
         return serde_json::to_string(&json_table).unwrap();
     }
 
-    pub fn group_and_aggregate(&self, groups: &[&str], aggregations: &[Aggregation]) -> Table {
+    fn get_row_hashes(&self, col_names: &[&str]) -> Vec<u64> {
         let mut row_hashers = (0..self.get_n_rows())
             .map(|_| DefaultHasher::new())
             .collect::<Vec<_>>();
 
-        for group in groups {
-            let col = &self.columns[*self.col_map.get(*group).unwrap()].column;
+        for col in col_names {
+            let col = &self.columns[*self.col_map.get(*col).unwrap()].column;
             match &col.values {
                 ColumnValues::Text(text_col) => {
                     for (hasher, (is_null, value)) in
@@ -214,6 +214,12 @@ impl Table {
             .iter()
             .map(|hasher| hasher.finish())
             .collect::<Vec<_>>();
+
+        return row_hashes;
+    }
+
+    pub fn group_and_aggregate(&self, groups: &[&str], aggregations: &[Aggregation]) -> Table {
+        let row_hashes = self.get_row_hashes(groups);
 
         let group_idxs = groups
             .iter()
@@ -363,7 +369,7 @@ impl Table {
         };
     }
 
-    pub fn select_and_rename(&self, fields: &[FieldSelect]) -> Table {
+    pub fn select_and_rename(&self, fields: &[RenameCol]) -> Table {
         let mut new_columns = Vec::<TableColumnWrapper>::with_capacity(fields.len());
         let mut new_col_map = HashMap::<String, usize>::with_capacity(fields.len());
 
@@ -382,12 +388,141 @@ impl Table {
         };
     }
 
-    // pub fn join_and_select(&self, other: &Self, join_on: &[(&str, &str)]) -> Table {
-    //     //
-    // }
+    pub fn augment(
+        &self,
+        right: &Self,
+        join_on: &[(&str, &str)],
+        new_columns: &[RenameCol],
+    ) -> Table {
+        struct HashKey<'a> {
+            row_hash: u64,
+            idx: usize,
+            columns: &'a [&'a TableColumnWrapper],
+        }
+
+        impl Eq for HashKey<'_> {}
+        impl PartialEq for HashKey<'_> {
+            fn eq(&self, other: &Self) -> bool {
+                for (left_col, right_col) in zip(self.columns, other.columns) {
+                    if !left_col
+                        .column
+                        .is_equal_at_index(&right_col.column, self.idx, other.idx)
+                    {
+                        return false;
+                    }
+                }
+                return true;
+            }
+        }
+        impl Hash for HashKey<'_> {
+            fn hash<H: Hasher>(&self, state: &mut H) {
+                self.row_hash.hash(state);
+            }
+        }
+
+        let mut right_key_groups = HashMap::<HashKey, Vec<usize>>::new();
+
+        let right_col_names = join_on
+            .iter()
+            .map(|(_, col_name)| *col_name)
+            .collect::<Vec<_>>();
+        let right_hashes = right.get_row_hashes(right_col_names.as_slice());
+
+        let right_cols = join_on
+            .iter()
+            .map(|(_, col_name)| &right.columns[right.col_map[*col_name]])
+            .collect::<Vec<_>>();
+
+        for idx in 0..right.get_n_rows() {
+            let key = HashKey {
+                row_hash: right_hashes[idx],
+                idx,
+                columns: right_cols.as_slice(),
+            };
+
+            if right_key_groups.contains_key(&key) {
+                right_key_groups.get_mut(&key).unwrap().push(idx);
+            } else {
+                right_key_groups.insert(key, vec![idx]);
+            }
+        }
+
+        let mut join_mapping = Vec::<(usize, Option<usize>)>::new();
+
+        let left_col_names = join_on
+            .iter()
+            .map(|(col_name, _)| *col_name)
+            .collect::<Vec<_>>();
+        let left_hashes = self.get_row_hashes(left_col_names.as_slice());
+
+        let left_cols = join_on
+            .iter()
+            .map(|(col_name, _)| &self.columns[self.col_map[*col_name]])
+            .collect::<Vec<_>>();
+
+        for left_idx in 0..self.get_n_rows() {
+            let key = HashKey {
+                row_hash: left_hashes[left_idx],
+                idx: left_idx,
+                columns: left_cols.as_slice(),
+            };
+
+            match right_key_groups.get(&key) {
+                None => {
+                    join_mapping.push((left_idx, None));
+                }
+                Some(key_group) => {
+                    for right_idx in key_group {
+                        join_mapping.push((left_idx, Some(*right_idx)));
+                    }
+                }
+            }
+        }
+
+        let mut new_cols = Vec::<TableColumnWrapper>::new();
+        let mut new_col_map = HashMap::<String, usize>::new();
+
+        /*
+        Output Column Order:
+            - all fields on left
+            - selected fields from right
+        */
+
+        let left_idxs = join_mapping.iter().map(|(idx, _)| *idx).collect::<Vec<_>>();
+        let right_idxs = join_mapping.iter().map(|(_, idx)| *idx).collect::<Vec<_>>();
+
+        // add the left col values
+        for col in &self.columns {
+            new_col_map.insert(col.name.clone(), new_cols.len());
+            new_cols.push(TableColumnWrapper {
+                name: col.name.clone(),
+                column: Rc::new(col.column.get_new_col_from_idx_map(left_idxs.as_slice())),
+            });
+        }
+
+        // add the right col values
+        for select in new_columns {
+            let col = &right.columns[right.col_map[select.old_name]];
+
+            new_col_map.insert(select.new_name.to_string(), new_cols.len());
+            new_cols.push(TableColumnWrapper {
+                name: select.new_name.to_string(),
+                column: Rc::new(
+                    col.column
+                        .get_new_col_from_opt_idx_map(right_idxs.as_slice()),
+                ),
+            })
+        }
+
+        return Table {
+            columns: new_cols,
+            col_map: new_col_map,
+            n_rows: join_mapping.len(),
+        };
+    }
 }
 
-pub struct FieldSelect<'a> {
+pub struct RenameCol<'a> {
     pub old_name: &'a str,
     pub new_name: &'a str,
 }

@@ -476,4 +476,37 @@ mod tests {
 
         assert_eq!(t2, tr);
     }
+
+    #[test]
+    fn augoment_with_no_join_fields() {
+        let t0 = Table::from_json_str(
+            r#"{"columns": [
+                {"name": "left_val", "type": "text", "values": ["a", "b"]}
+            ]}"#,
+        );
+
+        let t1 = Table::from_json_str(
+            r#"{"columns": [
+                {"name": "right_val", "type": "text", "values": ["x", "y", "z"]}
+            ]}"#,
+        );
+
+        let t2 = t0.augment(
+            &t1,
+            &[],
+            &[RenameCol {
+                old_name: "right_val",
+                new_name: "right_val",
+            }],
+        );
+
+        let tr = Table::from_json_str(
+            r#"{"columns": [
+                {"name":  "left_val", "type": "text", "values": ["a", "a", "a", "b", "b", "b"]},
+                {"name": "right_val", "type": "text", "values": ["x", "y", "z", "x", "y", "z"]}
+            ]}"#,
+        );
+
+        assert_eq!(t2, tr);
+    }
 }

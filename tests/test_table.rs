@@ -440,4 +440,40 @@ mod tests {
 
         assert_eq!(t2, tr);
     }
+
+    #[test]
+    fn augment_on_null() {
+        let t0 = Table::from_json_str(
+            r#"{"columns": [
+                {"name": "f0", "type": "text", "values": ["a", null, "c"]},
+                {"name": "left_val", "type": "text", "values": ["1l", "2l", "3l"]}
+            ]}"#,
+        );
+
+        let t1 = Table::from_json_str(
+            r#"{"columns": [
+                {"name": "F0", "type": "text", "values": [null, "a"]},
+                {"name": "right_val", "type": "text", "values": ["2r", "1r"]}
+            ]}"#,
+        );
+
+        let t2 = t0.augment(
+            &t1,
+            &[("f0", "F0")],
+            &[RenameCol {
+                old_name: "right_val",
+                new_name: "right_val",
+            }],
+        );
+
+        let tr = Table::from_json_str(
+            r#"{"columns": [
+                {"name": "f0", "type": "text", "values": ["a", null, "c"]},
+                {"name": "left_val", "type": "text", "values": ["1l", "2l", "3l"]},
+                {"name": "right_val", "type": "text", "values": ["1r", "2r", null]}
+            ]}"#,
+        );
+
+        assert_eq!(t2, tr);
+    }
 }

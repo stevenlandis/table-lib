@@ -1,4 +1,5 @@
-use std::iter::zip;
+use std::hash::{Hash, Hasher};
+use std::{hash::DefaultHasher, iter::zip};
 
 #[derive(Debug)]
 pub struct Column {
@@ -106,6 +107,46 @@ impl Column {
                 }),
             },
         }
+    }
+
+    pub fn get_col_hashes(n_rows: usize, columns: &[&Column]) -> Vec<u64> {
+        let mut row_hashers = (0..n_rows)
+            .map(|_| DefaultHasher::new())
+            .collect::<Vec<_>>();
+
+        for col in columns {
+            match &col.values {
+                ColumnValues::Text(text_col) => {
+                    for (hasher, (is_null, value)) in
+                        zip(&mut row_hashers, zip(&col.nulls, &text_col.values))
+                    {
+                        if *is_null {
+                            0.hash(hasher);
+                        } else {
+                            value.hash(hasher);
+                        }
+                    }
+                }
+                ColumnValues::Float64(float_col) => {
+                    for (hasher, (is_null, value)) in
+                        zip(&mut row_hashers, zip(&col.nulls, &float_col.values))
+                    {
+                        if *is_null {
+                            0.hash(hasher);
+                        } else {
+                            (*value as u64).hash(hasher);
+                        }
+                    }
+                }
+            }
+        }
+
+        let row_hashes = row_hashers
+            .iter()
+            .map(|hasher| hasher.finish())
+            .collect::<Vec<_>>();
+
+        return row_hashes;
     }
 }
 

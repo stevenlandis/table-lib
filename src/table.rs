@@ -1,11 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 use std::rc::Rc;
-use std::{
-    collections::HashMap,
-    hash::{DefaultHasher, Hasher},
-    iter::zip,
-};
+use std::{collections::HashMap, hash::Hasher, iter::zip};
 
 use super::column::{Column, ColumnValues, Float64ColumnValues, TextColumnValues};
 
@@ -177,49 +173,13 @@ impl Table {
         return serde_json::to_string(&json_table).unwrap();
     }
 
-    fn get_row_hashes(&self, col_names: &[&str]) -> Vec<u64> {
-        let mut row_hashers = (0..self.get_n_rows())
-            .map(|_| DefaultHasher::new())
-            .collect::<Vec<_>>();
-
-        for col in col_names {
-            let col = &self.columns[*self.col_map.get(*col).unwrap()].column;
-            match &col.values {
-                ColumnValues::Text(text_col) => {
-                    for (hasher, (is_null, value)) in
-                        zip(&mut row_hashers, zip(&col.nulls, &text_col.values))
-                    {
-                        if *is_null {
-                            0.hash(hasher);
-                        } else {
-                            value.hash(hasher);
-                        }
-                    }
-                }
-                ColumnValues::Float64(float_col) => {
-                    for (hasher, (is_null, value)) in
-                        zip(&mut row_hashers, zip(&col.nulls, &float_col.values))
-                    {
-                        if *is_null {
-                            0.hash(hasher);
-                        } else {
-                            (*value as u64).hash(hasher);
-                        }
-                    }
-                }
-            }
-        }
-
-        let row_hashes = row_hashers
-            .iter()
-            .map(|hasher| hasher.finish())
-            .collect::<Vec<_>>();
-
-        return row_hashes;
-    }
-
     pub fn group_and_aggregate(&self, groups: &[&str], aggregations: &[Aggregation]) -> Table {
-        let row_hashes = self.get_row_hashes(groups);
+        let group_cols = groups
+            .iter()
+            .map(|group_col| &*self.columns[self.col_map[*group_col]].column)
+            .collect::<Vec<_>>();
+
+        let row_hashes = Column::get_col_hashes(self.get_n_rows(), group_cols.as_slice());
 
         let group_idxs = groups
             .iter()
@@ -422,11 +382,12 @@ impl Table {
 
         let mut right_key_groups = HashMap::<HashKey, Vec<usize>>::new();
 
-        let right_col_names = join_on
+        let right_cols_for_hash = join_on
             .iter()
-            .map(|(_, col_name)| *col_name)
+            .map(|(_, col_name)| &*right.columns[right.col_map[*col_name]].column)
             .collect::<Vec<_>>();
-        let right_hashes = right.get_row_hashes(right_col_names.as_slice());
+        let right_hashes =
+            Column::get_col_hashes(right.get_n_rows(), right_cols_for_hash.as_slice());
 
         let right_cols = join_on
             .iter()
@@ -449,11 +410,11 @@ impl Table {
 
         let mut join_mapping = Vec::<(usize, Option<usize>)>::new();
 
-        let left_col_names = join_on
+        let left_cols_for_hash = join_on
             .iter()
-            .map(|(col_name, _)| *col_name)
+            .map(|(col_name, _)| &*self.columns[self.col_map[*col_name]].column)
             .collect::<Vec<_>>();
-        let left_hashes = self.get_row_hashes(left_col_names.as_slice());
+        let left_hashes = Column::get_col_hashes(self.get_n_rows(), left_cols_for_hash.as_slice());
 
         let left_cols = join_on
             .iter()

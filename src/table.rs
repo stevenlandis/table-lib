@@ -3,7 +3,9 @@ use std::hash::Hash;
 use std::rc::Rc;
 use std::{collections::HashMap, hash::Hasher, iter::zip};
 
-use super::column::{Column, ColumnValues, Float64ColumnValues, TextColumnValues};
+use super::column::{
+    AggregationType, Column, ColumnValues, Float64ColumnValues, Group, TextColumnValues,
+};
 
 #[derive(Debug)]
 pub struct Table {
@@ -299,12 +301,8 @@ impl Table {
         // Now that both the "happy-path" and "collision" rows are grouped,
         // do one last pass to combine
         let mut final_group_row_indexes = Vec::<usize>::with_capacity(self.get_n_rows());
-        struct FinalGroup {
-            start_group_row_idx: usize,
-            len: usize,
-        }
         let mut final_groups =
-            Vec::<FinalGroup>::with_capacity(hash_groups.len() + collision_groups.len());
+            Vec::<Group>::with_capacity(hash_groups.len() + collision_groups.len());
 
         {
             let mut equality_idx: usize = 0;
@@ -321,8 +319,8 @@ impl Table {
                         > hash_group_rows[hash_groups[group_idx].start_group_row_idx].row_idx
                 {
                     // process the normal group
-                    let mut final_group = FinalGroup {
-                        start_group_row_idx: final_group_row_indexes.len(),
+                    let mut final_group = Group {
+                        start_idx: final_group_row_indexes.len(),
                         len: 1,
                     };
                     let hash_group = &hash_groups[group_idx];
@@ -353,8 +351,8 @@ impl Table {
                 } else {
                     // process the collision group
                     let collision_group = &collision_groups[collision_group_idx];
-                    final_groups.push(FinalGroup {
-                        start_group_row_idx: final_group_row_indexes.len(),
+                    final_groups.push(Group {
+                        start_idx: final_group_row_indexes.len(),
                         len: collision_group.row_indexes.len(),
                     });
                     final_group_row_indexes.extend(&collision_group.row_indexes);
@@ -379,7 +377,7 @@ impl Table {
                     let mut new_nulls = Vec::<bool>::with_capacity(final_groups.len());
                     let mut new_values = Vec::<String>::with_capacity(final_groups.len());
                     for group in &final_groups {
-                        let first_row_idx = final_group_row_indexes[group.start_group_row_idx];
+                        let first_row_idx = final_group_row_indexes[group.start_idx];
                         new_nulls.push(col.column.nulls[first_row_idx]);
                         new_values.push(inner_col.values[first_row_idx].clone());
                     }
@@ -393,7 +391,7 @@ impl Table {
                     let mut new_nulls = Vec::<bool>::with_capacity(final_groups.len());
                     let mut new_values = Vec::<f64>::with_capacity(final_groups.len());
                     for group in &final_groups {
-                        let first_row_idx = final_group_row_indexes[group.start_group_row_idx];
+                        let first_row_idx = final_group_row_indexes[group.start_idx];
                         new_nulls.push(col.column.nulls[first_row_idx]);
                         new_values.push(inner_col.values[first_row_idx]);
                     }
@@ -413,60 +411,12 @@ impl Table {
         // add aggregation column values
         for agg in aggregations {
             let in_col = &self.columns[self.col_map[agg.in_col_name]].column;
-            let out_col: Column = match agg.agg_type {
-                AggregationType::Sum => match &in_col.values {
-                    ColumnValues::Float64(values) => {
-                        let mut out_nulls = Vec::<bool>::with_capacity(final_groups.len());
-                        let mut out_values = Vec::<f64>::with_capacity(final_groups.len());
-                        for group in &final_groups {
-                            let mut has_non_null = false;
-                            let mut val: f64 = 0.0;
-                            for group_row_idx in
-                                group.start_group_row_idx..(group.start_group_row_idx + group.len)
-                            {
-                                let row_idx = final_group_row_indexes[group_row_idx];
-                                if !in_col.nulls[row_idx] {
-                                    has_non_null = true;
-                                    val += values.values[row_idx];
-                                }
-                            }
-                            out_nulls.push(!has_non_null);
-                            out_values.push(val);
-                        }
-
-                        Column {
-                            nulls: out_nulls,
-                            values: ColumnValues::Float64(Float64ColumnValues {
-                                values: out_values,
-                            }),
-                        }
-                    }
-                    _ => {
-                        panic!("Unsupported SUM agg for this col type");
-                    }
-                },
-                AggregationType::First => match &in_col.values {
-                    ColumnValues::Float64(values) => {
-                        let mut out_nulls = Vec::<bool>::with_capacity(final_groups.len());
-                        let mut out_values = Vec::<f64>::with_capacity(final_groups.len());
-                        for group in &final_groups {
-                            let first_row_idx = final_group_row_indexes[group.start_group_row_idx];
-                            out_nulls.push(in_col.nulls[first_row_idx]);
-                            out_values.push(values.values[first_row_idx]);
-                        }
-
-                        Column {
-                            nulls: out_nulls,
-                            values: ColumnValues::Float64(Float64ColumnValues {
-                                values: out_values,
-                            }),
-                        }
-                    }
-                    _ => {
-                        panic!("Unsupported FIRST agg for this col type");
-                    }
-                },
-            };
+            let out_col = Column::batch_aggregate(
+                in_col,
+                &agg.agg_type,
+                final_groups.as_slice(),
+                final_group_row_indexes.as_slice(),
+            );
             new_columns.push(TableColumnWrapper {
                 name: agg.out_col_name.to_string(),
                 column: Rc::new(out_col),
@@ -648,11 +598,6 @@ pub struct Aggregation<'a> {
     pub in_col_name: &'a str,
     pub out_col_name: &'a str,
     pub agg_type: AggregationType,
-}
-
-pub enum AggregationType {
-    Sum,
-    First,
 }
 
 #[derive(Serialize, Deserialize)]

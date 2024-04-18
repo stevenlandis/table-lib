@@ -177,6 +177,62 @@ impl Column {
 
         return is_equal;
     }
+
+    pub fn batch_aggregate(
+        column: &Column,
+        aggregation_type: &AggregationType,
+        groups: &[Group],
+        row_indexes: &[usize],
+    ) -> Column {
+        return match aggregation_type {
+            AggregationType::Sum => match &column.values {
+                ColumnValues::Float64(values) => {
+                    let mut out_nulls = Vec::<bool>::with_capacity(groups.len());
+                    let mut out_values = Vec::<f64>::with_capacity(groups.len());
+                    for group in groups {
+                        let mut has_non_null = false;
+                        let mut val: f64 = 0.0;
+                        for group_row_idx in group.start_idx..(group.start_idx + group.len) {
+                            let row_idx = row_indexes[group_row_idx];
+                            if !column.nulls[row_idx] {
+                                has_non_null = true;
+                                val += values.values[row_idx];
+                            }
+                        }
+                        out_nulls.push(!has_non_null);
+                        out_values.push(val);
+                    }
+
+                    Column {
+                        nulls: out_nulls,
+                        values: ColumnValues::Float64(Float64ColumnValues { values: out_values }),
+                    }
+                }
+                _ => {
+                    panic!("Unsupported SUM agg for this col type");
+                }
+            },
+            AggregationType::First => match &column.values {
+                ColumnValues::Float64(values) => {
+                    let mut out_nulls = Vec::<bool>::with_capacity(groups.len());
+                    let mut out_values = Vec::<f64>::with_capacity(groups.len());
+                    for group in groups {
+                        let first_row_idx = row_indexes[group.start_idx];
+                        out_nulls.push(column.nulls[first_row_idx]);
+                        out_values.push(values.values[first_row_idx]);
+                    }
+
+                    Column {
+                        nulls: out_nulls,
+                        values: ColumnValues::Float64(Float64ColumnValues { values: out_values }),
+                    }
+                }
+                _ => {
+                    panic!("Unsupported FIRST agg for this col type");
+                }
+            },
+        };
+    }
 }
 
 impl PartialEq for Column {
@@ -244,4 +300,14 @@ pub struct TextColumnValues {
 #[derive(Debug)]
 pub struct Float64ColumnValues {
     pub values: Vec<f64>,
+}
+
+pub enum AggregationType {
+    Sum,
+    First,
+}
+
+pub struct Group {
+    pub start_idx: usize,
+    pub len: usize,
 }

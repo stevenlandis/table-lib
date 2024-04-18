@@ -289,6 +289,36 @@ impl Column {
             }
         };
     }
+
+    pub fn to_string_list(&self) -> Vec<Option<String>> {
+        return match &self.values {
+            ColumnValues::Text(text_col) => {
+                let mut values = Vec::<Option<String>>::new();
+                for (is_null, value) in zip(&self.nulls, &text_col.values) {
+                    if *is_null {
+                        values.push(None);
+                    } else {
+                        values.push(Some(value.clone()));
+                    }
+                }
+
+                values
+            }
+            ColumnValues::Float64(float_col) => {
+                let mut values = Vec::<Option<String>>::new();
+
+                for (is_null, value) in zip(&self.nulls, &float_col.values) {
+                    if *is_null {
+                        values.push(None);
+                    } else {
+                        values.push(Some(value.to_string()));
+                    }
+                }
+
+                values
+            }
+        };
+    }
 }
 
 impl PartialEq for Column {

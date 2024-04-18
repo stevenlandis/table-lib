@@ -79,40 +79,14 @@ impl Table {
         let mut columns = Vec::<JsonColumn>::new();
         for table_col in self.columns.iter() {
             let col = &table_col.column;
-            let json_col = match &col.values {
-                ColumnValues::Text(text_col) => {
-                    let mut values = Vec::<Option<String>>::new();
-                    for (is_null, value) in zip(&col.nulls, &text_col.values) {
-                        if *is_null {
-                            values.push(None);
-                        } else {
-                            values.push(Some(value.clone()));
-                        }
-                    }
 
-                    JsonColumn {
-                        name: table_col.name.clone(),
-                        _type: "text".to_string(),
-                        values,
-                    }
-                }
-                ColumnValues::Float64(float_col) => {
-                    let mut values = Vec::<Option<String>>::new();
-
-                    for (is_null, value) in zip(&col.nulls, &float_col.values) {
-                        if *is_null {
-                            values.push(None);
-                        } else {
-                            values.push(Some(value.to_string()));
-                        }
-                    }
-
-                    JsonColumn {
-                        name: table_col.name.clone(),
-                        _type: "float64".to_string(),
-                        values,
-                    }
-                }
+            let json_col = JsonColumn {
+                name: table_col.name.clone(),
+                _type: match &col.values {
+                    ColumnValues::Text(_) => "text".to_string(),
+                    ColumnValues::Float64(_) => "float64".to_string(),
+                },
+                values: col.to_string_list(),
             };
 
             columns.push(json_col);

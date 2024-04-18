@@ -233,6 +233,62 @@ impl Column {
             },
         };
     }
+
+    pub fn from_string_list(col_type: &str, values: &[Option<String>]) -> Column {
+        return match col_type {
+            "text" => {
+                let mut new_nulls = Vec::<bool>::with_capacity(values.len());
+                let mut new_values = Vec::<String>::with_capacity(values.len());
+                for value in values {
+                    match value {
+                        None => {
+                            new_nulls.push(true);
+                            new_values.push("".to_string());
+                        }
+                        Some(val_str) => {
+                            new_nulls.push(false);
+                            new_values.push(val_str.clone());
+                        }
+                    }
+                }
+
+                Column {
+                    nulls: new_nulls,
+                    values: ColumnValues::Text(TextColumnValues { values: new_values }),
+                }
+            }
+            "float64" => {
+                let mut new_nulls = Vec::<bool>::with_capacity(values.len());
+                let mut new_values = Vec::<f64>::with_capacity(values.len());
+                for value in values {
+                    match value {
+                        None => {
+                            new_nulls.push(true);
+                            new_values.push(0.0);
+                        }
+                        Some(val_str) => match val_str.parse::<f64>() {
+                            Ok(val_float) => {
+                                new_nulls.push(false);
+                                new_values.push(val_float);
+                            }
+                            Err(_) => {
+                                new_nulls.push(true);
+                                new_values.push(0.0);
+                            }
+                        },
+                    }
+                }
+
+                Column {
+                    nulls: new_nulls,
+                    values: ColumnValues::Float64(Float64ColumnValues { values: new_values }),
+                }
+            }
+            _ => {
+                panic!("Unable to parse column");
+            }
+        };
+    }
 }
 
 impl PartialEq for Column {

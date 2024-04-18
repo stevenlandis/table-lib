@@ -59,59 +59,7 @@ impl Table {
         let mut n_rows: usize = 0;
 
         for col in &json_table.columns {
-            let parsed_col = match col._type.as_str() {
-                "text" => {
-                    let mut nulls = Vec::<bool>::new();
-                    let mut values = Vec::<String>::new();
-                    for value in &col.values {
-                        match value {
-                            None => {
-                                nulls.push(true);
-                                values.push("".to_string());
-                            }
-                            Some(val_str) => {
-                                nulls.push(false);
-                                values.push(val_str.clone());
-                            }
-                        }
-                    }
-
-                    Column {
-                        nulls,
-                        values: ColumnValues::Text(TextColumnValues { values }),
-                    }
-                }
-                "float64" => {
-                    let mut nulls = Vec::<bool>::new();
-                    let mut values = Vec::<f64>::new();
-                    for value in &col.values {
-                        match value {
-                            None => {
-                                nulls.push(true);
-                                values.push(0.0);
-                            }
-                            Some(val_str) => match val_str.parse::<f64>() {
-                                Ok(val_float) => {
-                                    nulls.push(false);
-                                    values.push(val_float);
-                                }
-                                Err(_) => {
-                                    nulls.push(true);
-                                    values.push(0.0);
-                                }
-                            },
-                        }
-                    }
-
-                    Column {
-                        nulls,
-                        values: ColumnValues::Float64(Float64ColumnValues { values }),
-                    }
-                }
-                _ => {
-                    panic!("Unable to parse column");
-                }
-            };
+            let parsed_col = Column::from_string_list(&col._type, col.values.as_slice());
             n_rows = parsed_col.get_n_rows();
             col_map.insert(col.name.clone(), columns.len());
             columns.push(TableColumnWrapper {

@@ -314,11 +314,18 @@ mod tests {
 
         let t0_agg = t0.group_and_aggregate(
             &["g0"],
-            &[Aggregation {
-                in_col_name: "f0",
-                out_col_name: "f0_sum",
-                agg_type: AggregationType::Sum,
-            }],
+            &[
+                Aggregation {
+                    in_col_name: "f0",
+                    out_col_name: "f0_sum",
+                    agg_type: AggregationType::Sum,
+                },
+                Aggregation {
+                    in_col_name: "f0",
+                    out_col_name: "f0_first",
+                    agg_type: AggregationType::First,
+                },
+            ],
         );
 
         let t1 = Table::from_json_str(
@@ -328,6 +335,9 @@ mod tests {
                 ]},
                 {"name": "f0_sum", "type": "float64", "values": [
                     "17", "10", "4"
+                ]},
+                {"name": "f0_first", "type": "float64", "values": [
+                    "1", "2", "4"
                 ]}
             ]}"#,
         );

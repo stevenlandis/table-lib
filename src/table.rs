@@ -442,12 +442,30 @@ impl Table {
                         }
                     }
                     _ => {
-                        panic!("Unsupported SUM agg for this col type")
+                        panic!("Unsupported SUM agg for this col type");
                     }
                 },
-                _ => {
-                    panic!("Unsupported agg type");
-                }
+                AggregationType::First => match &in_col.values {
+                    ColumnValues::Float64(values) => {
+                        let mut out_nulls = Vec::<bool>::with_capacity(final_groups.len());
+                        let mut out_values = Vec::<f64>::with_capacity(final_groups.len());
+                        for group in &final_groups {
+                            let first_row_idx = final_group_row_indexes[group.start_group_row_idx];
+                            out_nulls.push(in_col.nulls[first_row_idx]);
+                            out_values.push(values.values[first_row_idx]);
+                        }
+
+                        Column {
+                            nulls: out_nulls,
+                            values: ColumnValues::Float64(Float64ColumnValues {
+                                values: out_values,
+                            }),
+                        }
+                    }
+                    _ => {
+                        panic!("Unsupported FIRST agg for this col type");
+                    }
+                },
             };
             new_columns.push(TableColumnWrapper {
                 name: agg.out_col_name.to_string(),
@@ -634,8 +652,7 @@ pub struct Aggregation<'a> {
 
 pub enum AggregationType {
     Sum,
-    Min,
-    Max,
+    First,
 }
 
 #[derive(Serialize, Deserialize)]

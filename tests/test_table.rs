@@ -300,6 +300,43 @@ mod tests {
     }
 
     #[test]
+    fn group_unordered_rows() {
+        let t0 = Table::from_json_str(
+            r#"{"columns": [
+                {"name": "g0", "type": "text", "values": [
+                    "A", "B", "C", "B", "A"
+                ]},
+                {"name": "f0", "type": "float64", "values": [
+                    "1", "2", "4", "8", "16"
+                ]}
+            ]}"#,
+        );
+
+        let t0_agg = t0.group_and_aggregate(
+            &["g0"],
+            &[Aggregation {
+                in_col_name: "f0",
+                out_col_name: "f0_sum",
+                agg_type: AggregationType::Sum,
+            }],
+        );
+
+        let t1 = Table::from_json_str(
+            r#"{"columns": [
+                {"name": "g0", "type": "text", "values": [
+                    "A", "B", "C"
+                ]},
+                {"name": "f0_sum", "type": "float64", "values": [
+                    "17", "10", "4"
+                ]}
+            ]}"#,
+        );
+
+        assert_eq!(t0_agg, t1);
+        assert_eq!(t1, t0_agg);
+    }
+
+    #[test]
     fn select_and_rename() {
         let t0 = Table::from_json_str(
             r#"{"columns": [

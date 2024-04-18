@@ -148,6 +148,35 @@ impl Column {
 
         return row_hashes;
     }
+
+    pub fn batch_equals(columns: &[&Column], equalities: &[(usize, usize)]) -> Vec<bool> {
+        let mut is_equal = (0..equalities.len()).map(|_| true).collect::<Vec<_>>();
+
+        for col in columns {
+            match &col.values {
+                ColumnValues::Text(inner_col) => {
+                    for (idx, (left_idx, right_idx)) in equalities.iter().enumerate() {
+                        if is_equal[idx]
+                            && inner_col.values[*left_idx] != inner_col.values[*right_idx]
+                        {
+                            is_equal[idx] = false;
+                        }
+                    }
+                }
+                ColumnValues::Float64(inner_col) => {
+                    for (idx, (left_idx, right_idx)) in equalities.iter().enumerate() {
+                        if is_equal[idx]
+                            && inner_col.values[*left_idx] != inner_col.values[*right_idx]
+                        {
+                            is_equal[idx] = false;
+                        }
+                    }
+                }
+            }
+        }
+
+        return is_equal;
+    }
 }
 
 impl PartialEq for Column {

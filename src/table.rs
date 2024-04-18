@@ -181,73 +181,207 @@ impl Table {
 
         let row_hashes = Column::get_col_hashes(self.get_n_rows(), group_cols.as_slice());
 
+        let mut hash_to_group_idx = HashMap::<u64, usize>::new();
+        struct HashGroup {
+            start_group_row_idx: usize,
+            end_group_row_idx: usize,
+        }
+        let mut hash_groups = Vec::<HashGroup>::new();
+        struct HashGroupRow {
+            row_idx: usize,
+            next_row_idx: usize,
+        }
+        let mut hash_group_rows = Vec::<HashGroupRow>::with_capacity(self.get_n_rows());
+
+        for (idx, hash) in row_hashes.iter().enumerate() {
+            match hash_to_group_idx.get(hash) {
+                None => {
+                    hash_to_group_idx.insert(*hash, hash_groups.len());
+                    hash_groups.push(HashGroup {
+                        start_group_row_idx: hash_group_rows.len(),
+                        end_group_row_idx: hash_group_rows.len(),
+                    });
+                }
+                Some(group_idx) => {
+                    let group_info = &mut hash_groups[*group_idx];
+                    hash_group_rows[group_info.end_group_row_idx].next_row_idx =
+                        hash_group_rows.len();
+                    group_info.end_group_row_idx = hash_group_rows.len();
+                }
+            }
+            hash_group_rows.push(HashGroupRow {
+                row_idx: idx,
+                next_row_idx: usize::MAX,
+            });
+        }
+
+        let mut equality_checks = Vec::<(usize, usize)>::new();
+
+        // Pass 1: create equality checks
+        for hash_group in &hash_groups {
+            if hash_group.start_group_row_idx == hash_group.end_group_row_idx {
+                // ignore hash groups with just one row
+                continue;
+            }
+
+            let mut idx = hash_group.start_group_row_idx;
+            let first_row_group = &hash_group_rows[idx];
+            let first_row_idx = first_row_group.row_idx;
+            idx = first_row_group.next_row_idx;
+            loop {
+                let group_row = &hash_group_rows[idx];
+
+                equality_checks.push((first_row_idx, group_row.row_idx));
+
+                if idx == hash_group.end_group_row_idx {
+                    break;
+                }
+                idx = group_row.next_row_idx;
+            }
+        }
+
+        let equalities = Column::batch_equals(&group_cols, &equality_checks);
+
+        // get a sorted list of row indexes that have hash collisions.
+        let mut false_equality_row_indexes = Vec::<usize>::new();
+        for (is_equal, (_, row_idx)) in zip(&equalities, &equality_checks) {
+            if !is_equal {
+                false_equality_row_indexes.push(*row_idx);
+            }
+        }
+        false_equality_row_indexes.sort();
+
+        // Use naive alg to group collisions since there shouldn't
+        // be many :)
+        struct CollisionKey<'a> {
+            row_idx: usize,
+            row_hash: u64,
+            columns: &'a [&'a Column],
+        }
+        impl Eq for CollisionKey<'_> {}
+        impl PartialEq for CollisionKey<'_> {
+            fn eq(&self, other: &Self) -> bool {
+                let results = Column::batch_equals(self.columns, &[(self.row_idx, other.row_idx)]);
+                return results[0];
+            }
+        }
+        impl Hash for CollisionKey<'_> {
+            fn hash<H: Hasher>(&self, state: &mut H) {
+                self.row_hash.hash(state);
+            }
+        }
+        let mut collision_key_to_group_idx = HashMap::<CollisionKey, usize>::new();
+        struct CollisionGroup {
+            start_row_idx: usize,
+            row_indexes: Vec<usize>,
+        }
+        let mut collision_groups = Vec::<CollisionGroup>::new();
+        for idx in false_equality_row_indexes {
+            let key = CollisionKey {
+                row_idx: idx,
+                row_hash: row_hashes[idx],
+                columns: group_cols.as_slice(),
+            };
+            match collision_key_to_group_idx.get(&key) {
+                None => {
+                    collision_key_to_group_idx.insert(key, collision_groups.len());
+                    collision_groups.push(CollisionGroup {
+                        start_row_idx: idx,
+                        row_indexes: vec![idx],
+                    });
+                }
+                Some(group_idx) => {
+                    collision_groups[*group_idx].row_indexes.push(idx);
+                }
+            }
+        }
+
+        // Now that both the "happy-path" and "collision" rows are grouped,
+        // do one last pass to combine
+        let mut final_group_row_indexes = Vec::<usize>::with_capacity(self.get_n_rows());
+        struct FinalGroup {
+            start_group_row_idx: usize,
+            len: usize,
+        }
+        let mut final_groups =
+            Vec::<FinalGroup>::with_capacity(hash_groups.len() + collision_groups.len());
+
+        {
+            let mut equality_idx: usize = 0;
+            let mut group_idx: usize = 0;
+            let mut collision_group_idx: usize = 0;
+            loop {
+                let hash_group_exists = group_idx < hash_groups.len();
+                let collision_group_exists = collision_group_idx < collision_groups.len();
+                if !hash_group_exists && !collision_group_exists {
+                    break;
+                }
+                if !collision_group_exists
+                    || collision_groups[collision_group_idx].start_row_idx
+                        > hash_group_rows[hash_groups[group_idx].start_group_row_idx].row_idx
+                {
+                    // process the normal group
+                    let mut final_group = FinalGroup {
+                        start_group_row_idx: final_group_row_indexes.len(),
+                        len: 1,
+                    };
+                    let hash_group = &hash_groups[group_idx];
+                    let mut idx = hash_group.start_group_row_idx;
+                    let first_row_group = &hash_group_rows[idx];
+                    let first_row_idx = first_row_group.row_idx;
+                    final_group_row_indexes.push(first_row_idx);
+                    idx = first_row_group.next_row_idx;
+                    loop {
+                        if idx == usize::MAX {
+                            break;
+                        }
+
+                        let group_row = &hash_group_rows[idx];
+
+                        if equalities[equality_idx] {
+                            // belongs to group
+                            final_group_row_indexes.push(group_row.row_idx);
+                            final_group.len += 1;
+                        }
+                        equality_idx += 1;
+
+                        idx = group_row.next_row_idx;
+                    }
+                    final_groups.push(final_group);
+
+                    group_idx += 1;
+                } else {
+                    // process the collision group
+                    let collision_group = &collision_groups[collision_group_idx];
+                    final_groups.push(FinalGroup {
+                        start_group_row_idx: final_group_row_indexes.len(),
+                        len: collision_group.row_indexes.len(),
+                    });
+                    final_group_row_indexes.extend(&collision_group.row_indexes);
+
+                    collision_group_idx += 1;
+                }
+            }
+        }
+
         let group_idxs = groups
             .iter()
             .map(|group| *self.col_map.get(*group).unwrap())
             .collect::<Vec<_>>();
 
-        struct GroupKey<'a> {
-            table: &'a Table,
-            group_idxs: &'a [usize],
-            row_hash: u64,
-            idx: usize,
-        }
-
-        impl Eq for GroupKey<'_> {}
-        impl PartialEq for GroupKey<'_> {
-            fn eq(&self, other: &Self) -> bool {
-                for group_idx in self.group_idxs {
-                    let col = &self.table.columns[*group_idx];
-
-                    if !col.column.eq_at_indexes(self.idx, other.idx) {
-                        return false;
-                    }
-                }
-
-                return true;
-            }
-        }
-
-        impl Hash for GroupKey<'_> {
-            fn hash<H: Hasher>(&self, state: &mut H) {
-                self.row_hash.hash(state);
-            }
-        }
-
-        let mut index_groups = Vec::<Vec<usize>>::new();
-        let mut group_to_idx_map = HashMap::<GroupKey, usize>::new();
-
-        for idx in 0..self.get_n_rows() {
-            let group_key = GroupKey {
-                table: self,
-                group_idxs: &group_idxs.as_slice(),
-                row_hash: row_hashes[idx],
-                idx,
-            };
-            let group_idx_opt = group_to_idx_map.get(&group_key);
-            match group_idx_opt {
-                None => {
-                    group_to_idx_map.insert(group_key, index_groups.len());
-                    index_groups.push(vec![idx]);
-                }
-                Some(group_idx) => {
-                    index_groups[*group_idx].push(idx);
-                }
-            }
-        }
-
         let mut new_columns = Vec::<TableColumnWrapper>::new();
 
         // add group columns
-        for group_idx in group_idxs {
-            let col = &self.columns[group_idx];
+        for col_group_idx in group_idxs {
+            let col = &self.columns[col_group_idx];
             let new_col = match &col.column.values {
                 ColumnValues::Text(inner_col) => {
-                    let mut new_nulls = Vec::<bool>::with_capacity(index_groups.len());
-                    let mut new_values = Vec::<String>::with_capacity(index_groups.len());
-                    for idx_group in &index_groups {
-                        new_nulls.push(col.column.nulls[idx_group[0]]);
-                        new_values.push(inner_col.values[idx_group[0]].clone());
+                    let mut new_nulls = Vec::<bool>::with_capacity(final_groups.len());
+                    let mut new_values = Vec::<String>::with_capacity(final_groups.len());
+                    for group in &final_groups {
+                        let first_row_idx = final_group_row_indexes[group.start_group_row_idx];
+                        new_nulls.push(col.column.nulls[first_row_idx]);
+                        new_values.push(inner_col.values[first_row_idx].clone());
                     }
 
                     Column {
@@ -256,11 +390,12 @@ impl Table {
                     }
                 }
                 ColumnValues::Float64(inner_col) => {
-                    let mut new_nulls = Vec::<bool>::with_capacity(index_groups.len());
-                    let mut new_values = Vec::<f64>::with_capacity(index_groups.len());
-                    for idx_group in &index_groups {
-                        new_nulls.push(col.column.nulls[idx_group[0]]);
-                        new_values.push(inner_col.values[idx_group[0]]);
+                    let mut new_nulls = Vec::<bool>::with_capacity(final_groups.len());
+                    let mut new_values = Vec::<f64>::with_capacity(final_groups.len());
+                    for group in &final_groups {
+                        let first_row_idx = final_group_row_indexes[group.start_group_row_idx];
+                        new_nulls.push(col.column.nulls[first_row_idx]);
+                        new_values.push(inner_col.values[first_row_idx]);
                     }
 
                     Column {
@@ -281,15 +416,18 @@ impl Table {
             let out_col: Column = match agg.agg_type {
                 AggregationType::Sum => match &in_col.values {
                     ColumnValues::Float64(values) => {
-                        let mut out_nulls = Vec::<bool>::with_capacity(index_groups.len());
-                        let mut out_values = Vec::<f64>::with_capacity(index_groups.len());
-                        for idx_group in &index_groups {
+                        let mut out_nulls = Vec::<bool>::with_capacity(final_groups.len());
+                        let mut out_values = Vec::<f64>::with_capacity(final_groups.len());
+                        for group in &final_groups {
                             let mut has_non_null = false;
                             let mut val: f64 = 0.0;
-                            for idx in idx_group {
-                                if !in_col.nulls[*idx] {
+                            for group_row_idx in
+                                group.start_group_row_idx..(group.start_group_row_idx + group.len)
+                            {
+                                let row_idx = final_group_row_indexes[group_row_idx];
+                                if !in_col.nulls[row_idx] {
                                     has_non_null = true;
-                                    val += values.values[*idx];
+                                    val += values.values[row_idx];
                                 }
                             }
                             out_nulls.push(!has_non_null);
@@ -325,7 +463,7 @@ impl Table {
         return Table {
             col_map: new_col_map,
             columns: new_columns,
-            n_rows: index_groups.len(),
+            n_rows: final_groups.len(),
         };
     }
 

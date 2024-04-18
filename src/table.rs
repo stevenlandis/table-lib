@@ -3,9 +3,7 @@ use std::hash::Hash;
 use std::rc::Rc;
 use std::{collections::HashMap, hash::Hasher, iter::zip};
 
-use super::column::{
-    AggregationType, Column, ColumnValues, Float64ColumnValues, Group, TextColumnValues,
-};
+use super::column::{AggregationType, Column, ColumnValues, Group};
 
 #[derive(Debug)]
 pub struct Table {
@@ -291,39 +289,18 @@ impl Table {
 
         let mut new_columns = Vec::<TableColumnWrapper>::new();
 
+        let first_group_row_indexes = final_groups
+            .iter()
+            .map(|group| final_group_row_indexes[group.start_idx])
+            .collect::<Vec<_>>();
+
         // add group columns
         for col_group_idx in group_idxs {
             let col = &self.columns[col_group_idx];
-            let new_col = match &col.column.values {
-                ColumnValues::Text(inner_col) => {
-                    let mut new_nulls = Vec::<bool>::with_capacity(final_groups.len());
-                    let mut new_values = Vec::<String>::with_capacity(final_groups.len());
-                    for group in &final_groups {
-                        let first_row_idx = final_group_row_indexes[group.start_idx];
-                        new_nulls.push(col.column.nulls[first_row_idx]);
-                        new_values.push(inner_col.values[first_row_idx].clone());
-                    }
+            let new_col = col
+                .column
+                .get_new_col_from_indexes(first_group_row_indexes.as_slice());
 
-                    Column {
-                        nulls: new_nulls,
-                        values: ColumnValues::Text(TextColumnValues { values: new_values }),
-                    }
-                }
-                ColumnValues::Float64(inner_col) => {
-                    let mut new_nulls = Vec::<bool>::with_capacity(final_groups.len());
-                    let mut new_values = Vec::<f64>::with_capacity(final_groups.len());
-                    for group in &final_groups {
-                        let first_row_idx = final_group_row_indexes[group.start_idx];
-                        new_nulls.push(col.column.nulls[first_row_idx]);
-                        new_values.push(inner_col.values[first_row_idx]);
-                    }
-
-                    Column {
-                        nulls: new_nulls,
-                        values: ColumnValues::Float64(Float64ColumnValues { values: new_values }),
-                    }
-                }
-            };
             new_columns.push(TableColumnWrapper {
                 name: col.name.clone(),
                 column: Rc::new(new_col),
@@ -485,7 +462,7 @@ impl Table {
             new_col_map.insert(col.name.clone(), new_cols.len());
             new_cols.push(TableColumnWrapper {
                 name: col.name.clone(),
-                column: Rc::new(col.column.get_new_col_from_idx_map(left_idxs.as_slice())),
+                column: Rc::new(col.column.get_new_col_from_indexes(left_idxs.as_slice())),
             });
         }
 

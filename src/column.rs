@@ -57,21 +57,18 @@ impl Column {
         };
     }
 
-    pub fn get_new_col_from_idx_map(&self, idx_mapping: &[usize]) -> Column {
+    pub fn get_new_col_from_indexes(&self, indexes: &[usize]) -> Column {
         Column {
-            nulls: idx_mapping.iter().map(|idx| self.nulls[*idx]).collect(),
+            nulls: indexes.iter().map(|idx| self.nulls[*idx]).collect(),
             values: match &self.values {
                 ColumnValues::Text(inner_col) => ColumnValues::Text(TextColumnValues {
-                    values: idx_mapping
+                    values: indexes
                         .iter()
                         .map(|idx| inner_col.values[*idx].clone())
                         .collect(),
                 }),
                 ColumnValues::Float64(inner_col) => ColumnValues::Float64(Float64ColumnValues {
-                    values: idx_mapping
-                        .iter()
-                        .map(|idx| inner_col.values[*idx])
-                        .collect(),
+                    values: indexes.iter().map(|idx| inner_col.values[*idx]).collect(),
                 }),
             },
         }

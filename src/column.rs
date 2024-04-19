@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::{hash::DefaultHasher, iter::zip};
 
@@ -11,6 +12,7 @@ impl Column {
     pub fn get_n_rows(&self) -> usize {
         return match &self.values {
             ColumnValues::Text(col) => col.values.len(),
+            ColumnValues::Text2(col) => col.records.len(),
             ColumnValues::Float64(col) => col.values.len(),
         };
     }
@@ -25,7 +27,11 @@ impl Column {
 
         match &self.values {
             ColumnValues::Text(inner_col) => {
-                return inner_col.values[left_idx] == inner_col.values[right_idx];
+                inner_col.values[left_idx] == inner_col.values[right_idx]
+            }
+            ColumnValues::Text2(inner_col) => {
+                return inner_col.records[left_idx].start_idx
+                    == inner_col.records[right_idx].start_idx;
             }
             ColumnValues::Float64(inner_col) => {
                 return inner_col.values[left_idx] == inner_col.values[right_idx];
@@ -48,6 +54,12 @@ impl Column {
                 }
                 _ => false,
             },
+            ColumnValues::Text2(inner_col) => match &other.values {
+                ColumnValues::Text2(other_inner_col) => {
+                    inner_col.get_str_at_idx(left_idx) == other_inner_col.get_str_at_idx(right_idx)
+                }
+                _ => false,
+            },
             ColumnValues::Float64(inner_col) => match &other.values {
                 ColumnValues::Float64(other_inner_col) => {
                     inner_col.values[left_idx] == other_inner_col.values[right_idx]
@@ -58,34 +70,49 @@ impl Column {
     }
 
     pub fn get_new_col_from_indexes(&self, indexes: &[usize]) -> Column {
-        Column {
-            nulls: indexes.iter().map(|idx| self.nulls[*idx]).collect(),
-            values: match &self.values {
-                ColumnValues::Text(inner_col) => ColumnValues::Text(TextColumnValues {
+        match &self.values {
+            ColumnValues::Text(inner_col) => Column {
+                nulls: indexes.iter().map(|idx| self.nulls[*idx]).collect(),
+                values: ColumnValues::Text(TextColumnValues {
                     values: indexes
                         .iter()
                         .map(|idx| inner_col.values[*idx].clone())
                         .collect(),
                 }),
-                ColumnValues::Float64(inner_col) => ColumnValues::Float64(Float64ColumnValues {
+            },
+            ColumnValues::Text2(inner_col) => {
+                let mut builder = TextColBuilder::new(indexes.len());
+                for idx in indexes {
+                    if self.nulls[*idx] {
+                        builder.add_null();
+                    } else {
+                        builder.add_value(inner_col.get_str_at_idx(*idx));
+                    }
+                }
+
+                builder.to_col()
+            }
+            ColumnValues::Float64(inner_col) => Column {
+                nulls: indexes.iter().map(|idx| self.nulls[*idx]).collect(),
+                values: ColumnValues::Float64(Float64ColumnValues {
                     values: indexes.iter().map(|idx| inner_col.values[*idx]).collect(),
                 }),
             },
         }
     }
 
-    pub fn get_new_col_from_opt_idx_map(&self, idx_mapping: &[Option<usize>]) -> Column {
-        Column {
-            nulls: idx_mapping
-                .iter()
-                .map(|idx_opt| match idx_opt {
-                    None => true,
-                    Some(idx) => self.nulls[*idx],
-                })
-                .collect(),
-            values: match &self.values {
-                ColumnValues::Text(inner_col) => ColumnValues::Text(TextColumnValues {
-                    values: idx_mapping
+    pub fn get_new_col_from_opt_indexes(&self, indexes: &[Option<usize>]) -> Column {
+        match &self.values {
+            ColumnValues::Text(inner_col) => Column {
+                nulls: indexes
+                    .iter()
+                    .map(|idx_opt| match idx_opt {
+                        None => true,
+                        Some(idx) => self.nulls[*idx],
+                    })
+                    .collect(),
+                values: ColumnValues::Text(TextColumnValues {
+                    values: indexes
                         .iter()
                         .map(|idx_opt| match idx_opt {
                             None => "".to_string(),
@@ -93,8 +120,32 @@ impl Column {
                         })
                         .collect(),
                 }),
-                ColumnValues::Float64(inner_col) => ColumnValues::Float64(Float64ColumnValues {
-                    values: idx_mapping
+            },
+            ColumnValues::Text2(inner_col) => {
+                let mut builder = TextColBuilder::new(indexes.len());
+                for idx in indexes {
+                    match idx {
+                        None => {
+                            builder.add_null();
+                        }
+                        Some(real_idx) => {
+                            builder.add_value(inner_col.get_str_at_idx(*real_idx));
+                        }
+                    }
+                }
+
+                builder.to_col()
+            }
+            ColumnValues::Float64(inner_col) => Column {
+                nulls: indexes
+                    .iter()
+                    .map(|idx_opt| match idx_opt {
+                        None => true,
+                        Some(idx) => self.nulls[*idx],
+                    })
+                    .collect(),
+                values: ColumnValues::Float64(Float64ColumnValues {
+                    values: indexes
                         .iter()
                         .map(|idx_opt| match idx_opt {
                             None => 0.0,
@@ -113,14 +164,23 @@ impl Column {
 
         for col in columns {
             match &col.values {
-                ColumnValues::Text(text_col) => {
+                ColumnValues::Text(float_col) => {
                     for (hasher, (is_null, value)) in
-                        zip(&mut row_hashers, zip(&col.nulls, &text_col.values))
+                        zip(&mut row_hashers, zip(&col.nulls, &float_col.values))
                     {
                         if *is_null {
                             0.hash(hasher);
                         } else {
                             value.hash(hasher);
+                        }
+                    }
+                }
+                ColumnValues::Text2(text_col) => {
+                    for (idx, (hasher, is_null)) in zip(&mut row_hashers, &col.nulls).enumerate() {
+                        if *is_null {
+                            0.hash(hasher);
+                        } else {
+                            text_col.get_str_at_idx(idx).hash(hasher);
                         }
                     }
                 }
@@ -155,6 +215,16 @@ impl Column {
                     for (idx, (left_idx, right_idx)) in equalities.iter().enumerate() {
                         if is_equal[idx]
                             && inner_col.values[*left_idx] != inner_col.values[*right_idx]
+                        {
+                            is_equal[idx] = false;
+                        }
+                    }
+                }
+                ColumnValues::Text2(inner_col) => {
+                    for (idx, (left_idx, right_idx)) in equalities.iter().enumerate() {
+                        if is_equal[idx]
+                            && inner_col.records[*left_idx].start_idx
+                                != inner_col.records[*right_idx].start_idx
                         {
                             is_equal[idx] = false;
                         }
@@ -254,6 +324,24 @@ impl Column {
                     values: ColumnValues::Text(TextColumnValues { values: new_values }),
                 }
             }
+            "text2" => {
+                let mut builder = TextColBuilder::new(values.len());
+
+                // let mut new_nulls = Vec::<bool>::with_capacity(values.len());
+                // let mut new_values = Vec::<String>::with_capacity(values.len());
+                for value in values {
+                    match value {
+                        None => {
+                            builder.add_null();
+                        }
+                        Some(val_str) => {
+                            builder.add_value(val_str);
+                        }
+                    }
+                }
+
+                builder.to_col()
+            }
             "float64" => {
                 let mut new_nulls = Vec::<bool>::with_capacity(values.len());
                 let mut new_values = Vec::<f64>::with_capacity(values.len());
@@ -289,9 +377,10 @@ impl Column {
 
     pub fn to_string_list(&self) -> Vec<Option<String>> {
         return match &self.values {
-            ColumnValues::Text(text_col) => {
+            ColumnValues::Text(inner_col) => {
                 let mut values = Vec::<Option<String>>::new();
-                for (is_null, value) in zip(&self.nulls, &text_col.values) {
+
+                for (is_null, value) in zip(&self.nulls, &inner_col.values) {
                     if *is_null {
                         values.push(None);
                     } else {
@@ -301,10 +390,22 @@ impl Column {
 
                 values
             }
-            ColumnValues::Float64(float_col) => {
+            ColumnValues::Text2(inner_col) => {
+                let mut values = Vec::<Option<String>>::new();
+                for (idx, is_null) in self.nulls.iter().enumerate() {
+                    if *is_null {
+                        values.push(None);
+                    } else {
+                        values.push(Some(inner_col.get_str_at_idx(idx).to_string()));
+                    }
+                }
+
+                values
+            }
+            ColumnValues::Float64(inner_col) => {
                 let mut values = Vec::<Option<String>>::new();
 
-                for (is_null, value) in zip(&self.nulls, &float_col.values) {
+                for (is_null, value) in zip(&self.nulls, &inner_col.values) {
                     if *is_null {
                         values.push(None);
                     } else {
@@ -325,17 +426,38 @@ impl PartialEq for Column {
         }
 
         match &self.values {
-            ColumnValues::Text(text_col) => {
+            ColumnValues::Text(inner_col) => match &other.values {
+                ColumnValues::Text(other_inner_col) => {
+                    for ((left_null, left_val), (right_null, right_val)) in zip(
+                        zip(&self.nulls, &inner_col.values),
+                        zip(&other.nulls, &other_inner_col.values),
+                    ) {
+                        if left_null != right_null {
+                            return false;
+                        }
+                        if !left_null && left_val != right_val {
+                            return false;
+                        }
+                    }
+                    return true;
+                }
+                _ => {
+                    return false;
+                }
+            },
+            ColumnValues::Text2(text_col) => {
                 match &other.values {
-                    ColumnValues::Text(other_text_col) => {
-                        for ((left_null, left_val), (right_null, right_val)) in zip(
-                            zip(&self.nulls, &text_col.values),
-                            zip(&other.nulls, &other_text_col.values),
-                        ) {
+                    ColumnValues::Text2(other_text_col) => {
+                        for (idx, (left_null, right_null)) in
+                            zip(&self.nulls, &other.nulls).enumerate()
+                        {
                             if left_null != right_null {
                                 return false;
                             }
-                            if !left_null && left_val != right_val {
+                            if !left_null
+                                && text_col.get_str_at_idx(idx)
+                                    != other_text_col.get_str_at_idx(idx)
+                            {
                                 return false;
                             }
                         }
@@ -372,12 +494,36 @@ impl PartialEq for Column {
 #[derive(Debug)]
 pub enum ColumnValues {
     Text(TextColumnValues),
+    Text2(TextColumnValues2),
     Float64(Float64ColumnValues),
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct TextColRecord {
+    pub start_idx: usize,
+    pub len: usize,
 }
 
 #[derive(Debug)]
 pub struct TextColumnValues {
     pub values: Vec<String>,
+}
+
+#[derive(Debug)]
+pub struct TextColumnValues2 {
+    pub base_data: Vec<u8>,
+    pub records: Vec<TextColRecord>,
+}
+
+impl TextColumnValues2 {
+    fn get_str_at_idx(&self, idx: usize) -> &str {
+        let record = &self.records[idx];
+        unsafe {
+            return std::str::from_utf8_unchecked(
+                &self.base_data[record.start_idx..record.start_idx + record.len],
+            );
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -393,4 +539,59 @@ pub enum AggregationType {
 pub struct Group {
     pub start_idx: usize,
     pub len: usize,
+}
+
+struct TextColBuilder<'a> {
+    nulls: Vec<bool>,
+    base_data: Vec<u8>,
+    records: Vec<TextColRecord>,
+    val_map: HashMap<&'a str, TextColRecord>,
+}
+
+impl<'a> TextColBuilder<'a> {
+    fn new(len: usize) -> Self {
+        TextColBuilder {
+            nulls: Vec::with_capacity(len),
+            base_data: Vec::new(),
+            records: Vec::with_capacity(len),
+            val_map: HashMap::new(),
+        }
+    }
+
+    fn add_value<'b: 'a>(&mut self, value: &'b str) {
+        self.nulls.push(false);
+        match self.val_map.get(value) {
+            None => {
+                let bytes = value.as_bytes();
+                let record = TextColRecord {
+                    start_idx: self.base_data.len(),
+                    len: bytes.len(),
+                };
+                self.records.push(record);
+                self.base_data.extend(bytes);
+                self.val_map.insert(value, record.clone());
+            }
+            Some(val_record) => {
+                self.records.push(*val_record);
+            }
+        }
+    }
+
+    fn add_null(&mut self) {
+        self.nulls.push(true);
+        self.records.push(TextColRecord {
+            start_idx: 0,
+            len: 0,
+        });
+    }
+
+    fn to_col(self) -> Column {
+        return Column {
+            nulls: self.nulls,
+            values: ColumnValues::Text2(TextColumnValues2 {
+                base_data: self.base_data,
+                records: self.records,
+            }),
+        };
+    }
 }

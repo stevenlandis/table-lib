@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 use std::rc::Rc;
+use std::time::Instant;
 use std::{collections::HashMap, hash::Hasher, iter::zip};
 
 use super::column::{AggregationType, Column, ColumnValues, Group};
@@ -82,6 +83,7 @@ impl Table {
                 name: table_col.name.clone(),
                 _type: match &col.values {
                     ColumnValues::Text(_) => "text".to_string(),
+                    ColumnValues::Text2(_) => "text".to_string(),
                     ColumnValues::Float64(_) => "float64".to_string(),
                 },
                 values: col.to_string_list(),
@@ -101,7 +103,10 @@ impl Table {
             .map(|group_col| &*self.columns[self.col_map[*group_col]].column)
             .collect::<Vec<_>>();
 
+        let t0 = Instant::now();
         let row_hashes = Column::get_col_hashes(self.get_n_rows(), group_cols.as_slice());
+        let d0 = t0.elapsed();
+        println!("Took {:.2?} to get col hashes", d0);
 
         let mut hash_to_group_idx = HashMap::<u64, usize>::new();
         struct HashGroup {
@@ -475,7 +480,7 @@ impl Table {
                 name: select.new_name.to_string(),
                 column: Rc::new(
                     col.column
-                        .get_new_col_from_opt_idx_map(right_idxs.as_slice()),
+                        .get_new_col_from_opt_indexes(right_idxs.as_slice()),
                 ),
             })
         }

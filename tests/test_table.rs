@@ -525,7 +525,7 @@ mod tests {
     }
 
     #[test]
-    fn augoment_with_no_join_fields() {
+    fn augment_with_no_join_fields() {
         let t0 = Table::from_json_str(
             r#"{"columns": [
                 {"name": "left_val", "type": "text", "values": ["a", "b"]}

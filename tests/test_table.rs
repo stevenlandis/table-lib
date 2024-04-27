@@ -556,4 +556,36 @@ mod tests {
 
         assert_eq!(t2, tr);
     }
+
+    #[test]
+    fn add_two_columns_and_add_new_col_to_table() {
+        let t0 = Table::from_json_str(
+            r#"{"columns": [
+                {"name": "id", "type": "text", "values": ["a", "b"]},
+                {"name": "v0", "type": "float64", "values": ["1", "2", "3", null]},
+                {"name": "v1", "type": "float64", "values": ["3", "4", null, null]}
+            ]}"#,
+        );
+
+        let c0 = t0.get_column("v0");
+        let c1 = t0.get_column("v1");
+        let c2 = c0.add(&c1);
+
+        let t1 = t0.with_column("v2", c2.into());
+
+        let tr = Table::from_json_str(
+            r#"{"columns": [
+                {"name": "id", "type": "text", "values": ["a", "b"]},
+                {"name": "v0", "type": "float64", "values": ["1", "2", "3", null]},
+                {"name": "v1", "type": "float64", "values": ["3", "4", null, null]},
+                {"name": "v2", "type": "float64", "values": ["4", "6", null, null]}
+            ]}"#,
+        );
+
+        assert_eq!(t1, tr);
+
+        let t2 = t0.with_column("v2", t0.get_column("v0").add(&t0.get_column("v1")).into());
+
+        assert_eq!(t2, tr);
+    }
 }

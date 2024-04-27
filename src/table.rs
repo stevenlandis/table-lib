@@ -13,8 +13,8 @@ pub struct Table {
     n_rows: usize,
 }
 
-#[derive(Debug)]
-struct TableColumnWrapper {
+#[derive(Debug, Clone)]
+pub struct TableColumnWrapper {
     name: String,
     column: Rc<Column>,
 }
@@ -489,6 +489,28 @@ impl Table {
             columns: new_cols,
             col_map: new_col_map,
             n_rows: join_mapping.len(),
+        };
+    }
+
+    pub fn get_column(&self, col_name: &str) -> Rc<Column> {
+        return self.columns[self.col_map[col_name]].column.clone();
+    }
+
+    pub fn with_column(&self, col_name: &str, column: Rc<Column>) -> Table {
+        assert_eq!(self.get_n_rows(), column.get_n_rows());
+        let mut new_columns = self.columns.clone();
+        let mut new_col_map = self.col_map.clone();
+
+        new_col_map.insert(col_name.to_string(), new_columns.len());
+        new_columns.push(TableColumnWrapper {
+            name: col_name.to_string(),
+            column: column.clone(),
+        });
+
+        return Table {
+            col_map: new_col_map,
+            columns: new_columns,
+            n_rows: self.n_rows,
         };
     }
 }

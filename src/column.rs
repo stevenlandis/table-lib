@@ -417,6 +417,29 @@ impl Column {
             }
         };
     }
+
+    pub fn add(&self, other: &Column) -> Column {
+        return match &self.values {
+            ColumnValues::Float64(inner_col) => match &other.values {
+                ColumnValues::Float64(other_inner_col) => Column {
+                    nulls: zip(&self.nulls, &other.nulls)
+                        .map(|(left, right)| *left || *right)
+                        .collect(),
+                    values: ColumnValues::Float64(Float64ColumnValues {
+                        values: zip(&inner_col.values, &other_inner_col.values)
+                            .map(|(left, right)| left + right)
+                            .collect(),
+                    }),
+                },
+                _ => {
+                    panic!("unsupported");
+                }
+            },
+            _ => {
+                panic!("unsupported");
+            }
+        };
+    }
 }
 
 impl PartialEq for Column {

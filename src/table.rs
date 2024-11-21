@@ -82,8 +82,8 @@ impl Table {
             let json_col = JsonColumn {
                 name: table_col.name.clone(),
                 _type: match &col.values {
+                    // ColumnValues::OldText(_) => "text".to_string(),
                     ColumnValues::Text(_) => "text".to_string(),
-                    ColumnValues::Text2(_) => "text".to_string(),
                     ColumnValues::Float64(_) => "float64".to_string(),
                 },
                 values: col.to_string_list(),

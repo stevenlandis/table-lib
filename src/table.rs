@@ -4,9 +4,11 @@ use std::rc::Rc;
 use std::time::Instant;
 use std::{collections::HashMap, hash::Hasher, iter::zip};
 
+use super::ast_node::{AstNode, AstNodeType};
 use super::column::{AggregationType, Column, ColumnValues, Group};
+use super::parser::{ParseError, Parser};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Table {
     col_map: HashMap<String, usize>,
     columns: Vec<TableColumnWrapper>,
@@ -512,6 +514,43 @@ impl Table {
             columns: new_columns,
             n_rows: self.n_rows,
         };
+    }
+
+    pub fn query(&self, query: &str) -> Result<Table, ParseError> {
+        let mut parser = Parser::new(query);
+        let ast = match parser.external_parse_expr() {
+            Err(err) => return Err(err),
+            Ok(ast) => ast,
+        };
+
+        let mut table: Table = self.clone();
+
+        for stmt in ast.iter_list() {
+            println!("Stmt: {:?}", stmt);
+            match stmt.get_type() {
+                AstNodeType::SelectStmt(selects) => {
+                    let col_names = selects
+                        .iter_list()
+                        .map(|select| match select.get_type() {
+                            AstNodeType::Identifier(col_name) => col_name.clone(),
+                            _ => todo!(),
+                        })
+                        .collect::<Vec<_>>();
+                    let col_renames = col_names
+                        .iter()
+                        .map(|col| RenameCol {
+                            old_name: &col,
+                            new_name: &col,
+                        })
+                        .collect::<Vec<_>>();
+
+                    table = table.select_and_rename(col_renames.as_slice());
+                }
+                _ => todo!(),
+            }
+        }
+
+        Ok(table)
     }
 }
 

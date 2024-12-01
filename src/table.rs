@@ -5,7 +5,7 @@ use std::time::Instant;
 use std::{collections::HashMap, hash::Hasher, iter::zip};
 
 use super::ast_node::AstNodeType;
-use super::column::{AggregationType, Column, ColumnValues, Group};
+use super::column::{AggregationType, Column, Group};
 use super::parser::{ParseError, Parser};
 
 #[derive(Debug, Clone)]

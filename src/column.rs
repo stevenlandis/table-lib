@@ -6,7 +6,7 @@ use super::bit_vec::BitVec;
 
 #[derive(Debug)]
 pub struct Column {
-    pub nulls: Vec<bool>,
+    pub nulls: BitVec,
     pub values: ColumnValues,
 }
 
@@ -28,10 +28,10 @@ impl Column {
     }
 
     pub fn eq_at_indexes(&self, left_idx: usize, right_idx: usize) -> bool {
-        if self.nulls[left_idx] != self.nulls[right_idx] {
+        if self.nulls.at(left_idx) != self.nulls.at(right_idx) {
             return false;
         }
-        if self.nulls[left_idx] {
+        if self.nulls.at(left_idx) {
             return true;
         }
 
@@ -50,10 +50,10 @@ impl Column {
     }
 
     pub fn is_equal_at_index(&self, other: &Self, left_idx: usize, right_idx: usize) -> bool {
-        if self.nulls[left_idx] != other.nulls[right_idx] {
+        if self.nulls.at(left_idx) != other.nulls.at(right_idx) {
             return false;
         }
-        if self.nulls[left_idx] {
+        if self.nulls.at(left_idx) {
             return true;
         }
 
@@ -84,7 +84,7 @@ impl Column {
             ColumnValues::Text(inner_col) => {
                 let mut builder = TextColBuilder::new(indexes.len());
                 for idx in indexes {
-                    if self.nulls[*idx] {
+                    if self.nulls.at(*idx) {
                         builder.add_null();
                     } else {
                         builder.add_value(inner_col.get_str_at_idx(*idx));
@@ -94,13 +94,13 @@ impl Column {
                 builder.to_col()
             }
             ColumnValues::Float64(inner_col) => Column {
-                nulls: indexes.iter().map(|idx| self.nulls[*idx]).collect(),
+                nulls: indexes.iter().map(|idx| self.nulls.at(*idx)).collect(),
                 values: ColumnValues::Float64(Float64ColumnValues {
                     values: indexes.iter().map(|idx| inner_col.values[*idx]).collect(),
                 }),
             },
             ColumnValues::Bool(inner_col) => Column {
-                nulls: indexes.iter().map(|idx| self.nulls[*idx]).collect(),
+                nulls: indexes.iter().map(|idx| self.nulls.at(*idx)).collect(),
                 values: ColumnValues::Bool(BoolColumnValues {
                     values: indexes
                         .iter()
@@ -133,7 +133,7 @@ impl Column {
                     .iter()
                     .map(|idx_opt| match idx_opt {
                         None => true,
-                        Some(idx) => self.nulls[*idx],
+                        Some(idx) => self.nulls.at(*idx),
                     })
                     .collect(),
                 values: ColumnValues::Float64(Float64ColumnValues {
@@ -151,7 +151,7 @@ impl Column {
                     .iter()
                     .map(|idx_opt| match idx_opt {
                         None => true,
-                        Some(idx) => self.nulls[*idx],
+                        Some(idx) => self.nulls.at(*idx),
                     })
                     .collect(),
                 values: ColumnValues::Bool(BoolColumnValues {
@@ -176,7 +176,7 @@ impl Column {
             match &col.values {
                 ColumnValues::Text(text_col) => {
                     for (idx, (hasher, is_null)) in zip(&mut row_hashers, &col.nulls).enumerate() {
-                        if *is_null {
+                        if is_null {
                             0.hash(hasher);
                         } else {
                             text_col.get_str_at_idx(idx).hash(hasher);
@@ -187,7 +187,7 @@ impl Column {
                     for (hasher, (is_null, value)) in
                         zip(&mut row_hashers, zip(&col.nulls, &float_col.values))
                     {
-                        if *is_null {
+                        if is_null {
                             0.hash(hasher);
                         } else {
                             (*value as u64).hash(hasher);
@@ -198,7 +198,7 @@ impl Column {
                     for (hasher, (is_null, value)) in
                         zip(&mut row_hashers, zip(&col.nulls, &bool_col.values))
                     {
-                        if *is_null {
+                        if is_null {
                             0.hash(hasher);
                         } else {
                             value.hash(hasher);
@@ -264,14 +264,14 @@ impl Column {
         return match aggregation_type {
             AggregationType::Sum => match &column.values {
                 ColumnValues::Float64(values) => {
-                    let mut out_nulls = Vec::<bool>::with_capacity(groups.len());
+                    let mut out_nulls = BitVec::new();
                     let mut out_values = Vec::<f64>::with_capacity(groups.len());
                     for group in groups {
                         let mut has_non_null = false;
                         let mut val: f64 = 0.0;
                         for group_row_idx in group.start_idx..(group.start_idx + group.len) {
                             let row_idx = row_indexes[group_row_idx];
-                            if !column.nulls[row_idx] {
+                            if !column.nulls.at(row_idx) {
                                 has_non_null = true;
                                 val += values.values[row_idx];
                             }
@@ -291,11 +291,11 @@ impl Column {
             },
             AggregationType::First => match &column.values {
                 ColumnValues::Float64(values) => {
-                    let mut out_nulls = Vec::<bool>::with_capacity(groups.len());
+                    let mut out_nulls = BitVec::new();
                     let mut out_values = Vec::<f64>::with_capacity(groups.len());
                     for group in groups {
                         let first_row_idx = row_indexes[group.start_idx];
-                        out_nulls.push(column.nulls[first_row_idx]);
+                        out_nulls.push(column.nulls.at(first_row_idx));
                         out_values.push(values.values[first_row_idx]);
                     }
 
@@ -330,7 +330,7 @@ impl Column {
                 builder.to_col()
             }
             "float64" => {
-                let mut new_nulls = Vec::<bool>::with_capacity(values.len());
+                let mut new_nulls = BitVec::new();
                 let mut new_values = Vec::<f64>::with_capacity(values.len());
                 for value in values {
                     match value {
@@ -357,8 +357,7 @@ impl Column {
                 }
             }
             "bool" => {
-                let mut new_nulls = Vec::<bool>::with_capacity(values.len());
-                // let mut new_values = Vec::<bool>::with_capacity(values.len());
+                let mut new_nulls = BitVec::new();
                 let mut new_values = BitVec::new();
                 for value in values {
                     match value {
@@ -399,7 +398,7 @@ impl Column {
             ColumnValues::Text(inner_col) => {
                 let mut values = Vec::<Option<String>>::new();
                 for (idx, is_null) in self.nulls.iter().enumerate() {
-                    if *is_null {
+                    if is_null {
                         values.push(None);
                     } else {
                         values.push(Some(inner_col.get_str_at_idx(idx).to_string()));
@@ -412,7 +411,7 @@ impl Column {
                 let mut values = Vec::<Option<String>>::new();
 
                 for (is_null, value) in zip(&self.nulls, &inner_col.values) {
-                    if *is_null {
+                    if is_null {
                         values.push(None);
                     } else {
                         values.push(Some(value.to_string()));
@@ -425,7 +424,7 @@ impl Column {
                 let mut values = Vec::<Option<String>>::new();
 
                 for (is_null, value) in zip(&self.nulls, &inner_col.values) {
-                    if *is_null {
+                    if is_null {
                         values.push(None);
                     } else {
                         values.push(Some(if value {
@@ -446,7 +445,7 @@ impl Column {
             ColumnValues::Float64(inner_col) => match &other.values {
                 ColumnValues::Float64(other_inner_col) => Column {
                     nulls: zip(&self.nulls, &other.nulls)
-                        .map(|(left, right)| *left || *right)
+                        .map(|(left, right)| left || right)
                         .collect(),
                     values: ColumnValues::Float64(Float64ColumnValues {
                         values: zip(&inner_col.values, &other_inner_col.values)
@@ -586,7 +585,7 @@ pub struct Group {
 }
 
 struct TextColBuilder<'a> {
-    nulls: Vec<bool>,
+    nulls: BitVec,
     base_data: Vec<u8>,
     records: Vec<TextColRecord>,
     val_map: HashMap<&'a str, TextColRecord>,
@@ -595,7 +594,7 @@ struct TextColBuilder<'a> {
 impl<'a> TextColBuilder<'a> {
     fn new(len: usize) -> Self {
         TextColBuilder {
-            nulls: Vec::with_capacity(len),
+            nulls: BitVec::new(),
             base_data: Vec::new(),
             records: Vec::with_capacity(len),
             val_map: HashMap::new(),

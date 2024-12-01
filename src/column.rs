@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::{hash::DefaultHasher, iter::zip};
 
+use super::bit_vec::BitVec;
+
 #[derive(Debug)]
 pub struct Column {
     pub nulls: Vec<bool>,
@@ -42,7 +44,7 @@ impl Column {
                 return inner_col.values[left_idx] == inner_col.values[right_idx];
             }
             ColumnValues::Bool(inner_col) => {
-                return inner_col.values[left_idx] == inner_col.values[right_idx];
+                return inner_col.values.at(left_idx) == inner_col.values.at(right_idx);
             }
         }
     }
@@ -70,7 +72,7 @@ impl Column {
             },
             ColumnValues::Bool(inner_col) => match &other.values {
                 ColumnValues::Bool(other_inner_col) => {
-                    inner_col.values[left_idx] == other_inner_col.values[right_idx]
+                    inner_col.values.at(left_idx) == other_inner_col.values.at(right_idx)
                 }
                 _ => false,
             },
@@ -100,7 +102,10 @@ impl Column {
             ColumnValues::Bool(inner_col) => Column {
                 nulls: indexes.iter().map(|idx| self.nulls[*idx]).collect(),
                 values: ColumnValues::Bool(BoolColumnValues {
-                    values: indexes.iter().map(|idx| inner_col.values[*idx]).collect(),
+                    values: indexes
+                        .iter()
+                        .map(|idx| inner_col.values.at(*idx))
+                        .collect(),
                 }),
             },
         }
@@ -154,7 +159,7 @@ impl Column {
                         .iter()
                         .map(|idx_opt| match idx_opt {
                             None => false,
-                            Some(idx) => inner_col.values[*idx],
+                            Some(idx) => inner_col.values.at(*idx),
                         })
                         .collect(),
                 }),
@@ -238,7 +243,7 @@ impl Column {
                 ColumnValues::Bool(inner_col) => {
                     for (idx, (left_idx, right_idx)) in equalities.iter().enumerate() {
                         if is_equal[idx]
-                            && inner_col.values[*left_idx] != inner_col.values[*right_idx]
+                            && inner_col.values.at(*left_idx) != inner_col.values.at(*right_idx)
                         {
                             is_equal[idx] = false;
                         }
@@ -353,7 +358,8 @@ impl Column {
             }
             "bool" => {
                 let mut new_nulls = Vec::<bool>::with_capacity(values.len());
-                let mut new_values = Vec::<bool>::with_capacity(values.len());
+                // let mut new_values = Vec::<bool>::with_capacity(values.len());
+                let mut new_values = BitVec::new();
                 for value in values {
                     match value {
                         None => {
@@ -422,7 +428,7 @@ impl Column {
                     if *is_null {
                         values.push(None);
                     } else {
-                        values.push(Some(if *value {
+                        values.push(Some(if value {
                             "true".to_string()
                         } else {
                             "false".to_string()
@@ -566,7 +572,7 @@ pub struct Float64ColumnValues {
 
 #[derive(Debug)]
 pub struct BoolColumnValues {
-    pub values: Vec<bool>,
+    pub values: BitVec,
 }
 
 pub enum AggregationType {

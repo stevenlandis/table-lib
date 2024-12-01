@@ -4,7 +4,7 @@ use std::rc::Rc;
 use std::time::Instant;
 use std::{collections::HashMap, hash::Hasher, iter::zip};
 
-use super::ast_node::{AstNode, AstNodeType};
+use super::ast_node::AstNodeType;
 use super::column::{AggregationType, Column, ColumnValues, Group};
 use super::parser::{ParseError, Parser};
 
@@ -83,11 +83,7 @@ impl Table {
 
             let json_col = JsonColumn {
                 name: table_col.name.clone(),
-                _type: match &col.values {
-                    // ColumnValues::OldText(_) => "text".to_string(),
-                    ColumnValues::Text(_) => "text".to_string(),
-                    ColumnValues::Float64(_) => "float64".to_string(),
-                },
+                _type: col.get_type_name(),
                 values: col.to_string_list(),
             };
 

@@ -13,7 +13,16 @@ impl Column {
         return match &self.values {
             ColumnValues::Text(col) => col.records.len(),
             ColumnValues::Float64(col) => col.values.len(),
+            ColumnValues::Bool(col) => col.values.len(),
         };
+    }
+
+    pub fn get_type_name(&self) -> String {
+        match &self.values {
+            ColumnValues::Text(_) => "text".to_string(),
+            ColumnValues::Float64(_) => "float64".to_string(),
+            ColumnValues::Bool(_) => "bool".to_string(),
+        }
     }
 
     pub fn eq_at_indexes(&self, left_idx: usize, right_idx: usize) -> bool {
@@ -30,6 +39,9 @@ impl Column {
                     == inner_col.records[right_idx].start_idx;
             }
             ColumnValues::Float64(inner_col) => {
+                return inner_col.values[left_idx] == inner_col.values[right_idx];
+            }
+            ColumnValues::Bool(inner_col) => {
                 return inner_col.values[left_idx] == inner_col.values[right_idx];
             }
         }
@@ -56,6 +68,12 @@ impl Column {
                 }
                 _ => false,
             },
+            ColumnValues::Bool(inner_col) => match &other.values {
+                ColumnValues::Bool(other_inner_col) => {
+                    inner_col.values[left_idx] == other_inner_col.values[right_idx]
+                }
+                _ => false,
+            },
         };
     }
 
@@ -76,6 +94,12 @@ impl Column {
             ColumnValues::Float64(inner_col) => Column {
                 nulls: indexes.iter().map(|idx| self.nulls[*idx]).collect(),
                 values: ColumnValues::Float64(Float64ColumnValues {
+                    values: indexes.iter().map(|idx| inner_col.values[*idx]).collect(),
+                }),
+            },
+            ColumnValues::Bool(inner_col) => Column {
+                nulls: indexes.iter().map(|idx| self.nulls[*idx]).collect(),
+                values: ColumnValues::Bool(BoolColumnValues {
                     values: indexes.iter().map(|idx| inner_col.values[*idx]).collect(),
                 }),
             },
@@ -117,6 +141,24 @@ impl Column {
                         .collect(),
                 }),
             },
+            ColumnValues::Bool(inner_col) => Column {
+                nulls: indexes
+                    .iter()
+                    .map(|idx_opt| match idx_opt {
+                        None => true,
+                        Some(idx) => self.nulls[*idx],
+                    })
+                    .collect(),
+                values: ColumnValues::Bool(BoolColumnValues {
+                    values: indexes
+                        .iter()
+                        .map(|idx_opt| match idx_opt {
+                            None => false,
+                            Some(idx) => inner_col.values[*idx],
+                        })
+                        .collect(),
+                }),
+            },
         }
     }
 
@@ -147,6 +189,17 @@ impl Column {
                         }
                     }
                 }
+                ColumnValues::Bool(bool_col) => {
+                    for (hasher, (is_null, value)) in
+                        zip(&mut row_hashers, zip(&col.nulls, &bool_col.values))
+                    {
+                        if *is_null {
+                            0.hash(hasher);
+                        } else {
+                            value.hash(hasher);
+                        }
+                    }
+                }
             }
         }
 
@@ -174,6 +227,15 @@ impl Column {
                     }
                 }
                 ColumnValues::Float64(inner_col) => {
+                    for (idx, (left_idx, right_idx)) in equalities.iter().enumerate() {
+                        if is_equal[idx]
+                            && inner_col.values[*left_idx] != inner_col.values[*right_idx]
+                        {
+                            is_equal[idx] = false;
+                        }
+                    }
+                }
+                ColumnValues::Bool(inner_col) => {
                     for (idx, (left_idx, right_idx)) in equalities.iter().enumerate() {
                         if is_equal[idx]
                             && inner_col.values[*left_idx] != inner_col.values[*right_idx]
@@ -289,6 +351,37 @@ impl Column {
                     values: ColumnValues::Float64(Float64ColumnValues { values: new_values }),
                 }
             }
+            "bool" => {
+                let mut new_nulls = Vec::<bool>::with_capacity(values.len());
+                let mut new_values = Vec::<bool>::with_capacity(values.len());
+                for value in values {
+                    match value {
+                        None => {
+                            new_nulls.push(true);
+                            new_values.push(false);
+                        }
+                        Some(val_str) => match val_str.as_str() {
+                            "false" => {
+                                new_nulls.push(false);
+                                new_values.push(false);
+                            }
+                            "true" => {
+                                new_nulls.push(false);
+                                new_values.push(true);
+                            }
+                            _ => {
+                                new_nulls.push(true);
+                                new_values.push(false);
+                            }
+                        },
+                    }
+                }
+
+                Column {
+                    nulls: new_nulls,
+                    values: ColumnValues::Bool(BoolColumnValues { values: new_values }),
+                }
+            }
             _ => {
                 panic!("Unable to parse column");
             }
@@ -317,6 +410,23 @@ impl Column {
                         values.push(None);
                     } else {
                         values.push(Some(value.to_string()));
+                    }
+                }
+
+                values
+            }
+            ColumnValues::Bool(inner_col) => {
+                let mut values = Vec::<Option<String>>::new();
+
+                for (is_null, value) in zip(&self.nulls, &inner_col.values) {
+                    if *is_null {
+                        values.push(None);
+                    } else {
+                        values.push(Some(if *value {
+                            "true".to_string()
+                        } else {
+                            "false".to_string()
+                        }));
                     }
                 }
 
@@ -398,6 +508,23 @@ impl PartialEq for Column {
                     return false;
                 }
             },
+            ColumnValues::Bool(bool_col) => match &other.values {
+                ColumnValues::Bool(other_bool_col) => {
+                    for ((left_null, left_val), (right_null, right_val)) in zip(
+                        zip(&self.nulls, &bool_col.values),
+                        zip(&other.nulls, &other_bool_col.values),
+                    ) {
+                        if left_null != right_null {
+                            return false;
+                        }
+                        if !left_null && left_val != right_val {
+                            return false;
+                        }
+                    }
+                    return true;
+                }
+                _ => return false,
+            },
         }
     }
 }
@@ -406,6 +533,7 @@ impl PartialEq for Column {
 pub enum ColumnValues {
     Text(TextColumnValues),
     Float64(Float64ColumnValues),
+    Bool(BoolColumnValues),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -434,6 +562,11 @@ impl TextColumnValues {
 #[derive(Debug)]
 pub struct Float64ColumnValues {
     pub values: Vec<f64>,
+}
+
+#[derive(Debug)]
+pub struct BoolColumnValues {
+    pub values: Vec<bool>,
 }
 
 pub enum AggregationType {

@@ -1,17 +1,132 @@
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::rc::Rc;
 use std::{hash::DefaultHasher, iter::zip};
 
 use super::bit_vec::BitVec;
 
-#[derive(Debug)]
+#[derive(Clone)]
 pub struct Column {
+    col: Rc<InnerColumn>,
+}
+
+impl core::fmt::Debug for Column {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.col.fmt(f)
+    }
+}
+
+impl Column {
+    pub fn get_true_indexes(&self) -> Vec<usize> {
+        self.col.get_true_indexes()
+    }
+
+    pub fn from_indexes(&self, indexes: &Vec<usize>) -> Column {
+        Column {
+            col: Rc::new(self.col.from_indexes(indexes)),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.col.len()
+    }
+
+    pub fn from_string_list(col_type: &str, values: &[Option<String>]) -> Column {
+        Column {
+            col: Rc::new(InnerColumn::from_string_list(col_type, values)),
+        }
+    }
+
+    pub fn get_type_name(&self) -> String {
+        self.col.get_type_name()
+    }
+
+    pub fn to_string_list(&self) -> Vec<Option<String>> {
+        self.col.to_string_list()
+    }
+
+    pub fn get_col_hashes(n_rows: usize, columns: &[Column]) -> Vec<u64> {
+        let mut row_hashers = (0..n_rows)
+            .map(|_| DefaultHasher::new())
+            .collect::<Vec<_>>();
+
+        for col in columns {
+            col.col.update_col_hashes(&mut row_hashers);
+        }
+
+        let row_hashes = row_hashers
+            .iter()
+            .map(|hasher| hasher.finish())
+            .collect::<Vec<_>>();
+
+        return row_hashes;
+    }
+
+    pub fn batch_equals(columns: &[Column], equalities: &[(usize, usize)]) -> Vec<bool> {
+        let mut is_equal = (0..equalities.len()).map(|_| true).collect::<Vec<_>>();
+
+        for col in columns {
+            col.col.batch_equals(equalities, &mut is_equal);
+        }
+
+        return is_equal;
+    }
+
+    pub fn get_new_col_from_indexes(&self, indexes: &[usize]) -> Column {
+        Column {
+            col: Rc::new(self.col.get_new_col_from_indexes(indexes)),
+        }
+    }
+
+    pub fn get_new_col_from_opt_indexes(&self, indexes: &[Option<usize>]) -> Column {
+        Column {
+            col: Rc::new(self.col.get_new_col_from_opt_indexes(indexes)),
+        }
+    }
+
+    pub fn batch_aggregate(
+        &self,
+        aggregation_type: &AggregationType,
+        groups: &[Group],
+        row_indexes: &[usize],
+    ) -> Column {
+        Column {
+            col: Rc::new(
+                self.col
+                    .batch_aggregate(aggregation_type, groups, row_indexes),
+            ),
+        }
+    }
+
+    pub fn is_equal_at_index(&self, other: &Self, left_idx: usize, right_idx: usize) -> bool {
+        self.col.is_equal_at_index(&other.col, left_idx, right_idx)
+    }
+}
+
+impl PartialEq for Column {
+    fn eq(&self, other: &Self) -> bool {
+        self.col.eq(&other.col)
+    }
+}
+
+impl std::ops::Add for Column {
+    type Output = Column;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Column {
+            col: Rc::new(self.col.add(&rhs.col)),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct InnerColumn {
     pub nulls: BitVec,
     pub values: ColumnValues,
 }
 
-impl Column {
-    pub fn get_n_rows(&self) -> usize {
+impl InnerColumn {
+    pub fn len(&self) -> usize {
         return match &self.values {
             ColumnValues::Text(col) => col.records.len(),
             ColumnValues::Float64(col) => col.values.len(),
@@ -63,8 +178,8 @@ impl Column {
             .collect::<Vec<_>>()
     }
 
-    pub fn from_indexes(&self, indexes: &Vec<usize>) -> Column {
-        Column {
+    pub fn from_indexes(&self, indexes: &Vec<usize>) -> InnerColumn {
+        InnerColumn {
             nulls: indexes
                 .iter()
                 .map(|idx| self.nulls.at(*idx))
@@ -111,7 +226,7 @@ impl Column {
         };
     }
 
-    pub fn get_new_col_from_indexes(&self, indexes: &[usize]) -> Column {
+    pub fn get_new_col_from_indexes(&self, indexes: &[usize]) -> InnerColumn {
         match &self.values {
             ColumnValues::Text(inner_col) => {
                 let mut builder = TextColBuilder::new(indexes.len());
@@ -125,13 +240,13 @@ impl Column {
 
                 builder.to_col()
             }
-            ColumnValues::Float64(inner_col) => Column {
+            ColumnValues::Float64(inner_col) => InnerColumn {
                 nulls: indexes.iter().map(|idx| self.nulls.at(*idx)).collect(),
                 values: ColumnValues::Float64(Float64ColumnValues {
                     values: indexes.iter().map(|idx| inner_col.values[*idx]).collect(),
                 }),
             },
-            ColumnValues::Bool(inner_col) => Column {
+            ColumnValues::Bool(inner_col) => InnerColumn {
                 nulls: indexes.iter().map(|idx| self.nulls.at(*idx)).collect(),
                 values: ColumnValues::Bool(BoolColumnValues {
                     values: indexes
@@ -143,7 +258,7 @@ impl Column {
         }
     }
 
-    pub fn get_new_col_from_opt_indexes(&self, indexes: &[Option<usize>]) -> Column {
+    pub fn get_new_col_from_opt_indexes(&self, indexes: &[Option<usize>]) -> InnerColumn {
         match &self.values {
             ColumnValues::Text(inner_col) => {
                 let mut builder = TextColBuilder::new(indexes.len());
@@ -160,7 +275,7 @@ impl Column {
 
                 builder.to_col()
             }
-            ColumnValues::Float64(inner_col) => Column {
+            ColumnValues::Float64(inner_col) => InnerColumn {
                 nulls: indexes
                     .iter()
                     .map(|idx_opt| match idx_opt {
@@ -178,7 +293,7 @@ impl Column {
                         .collect(),
                 }),
             },
-            ColumnValues::Bool(inner_col) => Column {
+            ColumnValues::Bool(inner_col) => InnerColumn {
                 nulls: indexes
                     .iter()
                     .map(|idx_opt| match idx_opt {
@@ -199,102 +314,82 @@ impl Column {
         }
     }
 
-    pub fn get_col_hashes(n_rows: usize, columns: &[&Column]) -> Vec<u64> {
-        let mut row_hashers = (0..n_rows)
-            .map(|_| DefaultHasher::new())
-            .collect::<Vec<_>>();
-
-        for col in columns {
-            match &col.values {
-                ColumnValues::Text(text_col) => {
-                    for (idx, (hasher, is_null)) in zip(&mut row_hashers, &col.nulls).enumerate() {
-                        if is_null {
-                            0.hash(hasher);
-                        } else {
-                            text_col.get_str_at_idx(idx).hash(hasher);
-                        }
+    pub fn update_col_hashes(&self, row_hashers: &mut Vec<DefaultHasher>) {
+        match &self.values {
+            ColumnValues::Text(text_col) => {
+                for (idx, (hasher, is_null)) in zip(row_hashers, &self.nulls).enumerate() {
+                    if is_null {
+                        0.hash(hasher);
+                    } else {
+                        text_col.get_str_at_idx(idx).hash(hasher);
                     }
                 }
-                ColumnValues::Float64(float_col) => {
-                    for (hasher, (is_null, value)) in
-                        zip(&mut row_hashers, zip(&col.nulls, &float_col.values))
-                    {
-                        if is_null {
-                            0.hash(hasher);
-                        } else {
-                            (*value as u64).hash(hasher);
-                        }
+            }
+            ColumnValues::Float64(float_col) => {
+                for (hasher, (is_null, value)) in
+                    zip(row_hashers, zip(&self.nulls, &float_col.values))
+                {
+                    if is_null {
+                        0.hash(hasher);
+                    } else {
+                        (*value as u64).hash(hasher);
                     }
                 }
-                ColumnValues::Bool(bool_col) => {
-                    for (hasher, (is_null, value)) in
-                        zip(&mut row_hashers, zip(&col.nulls, &bool_col.values))
-                    {
-                        if is_null {
-                            0.hash(hasher);
-                        } else {
-                            value.hash(hasher);
-                        }
+            }
+            ColumnValues::Bool(bool_col) => {
+                for (hasher, (is_null, value)) in
+                    zip(row_hashers, zip(&self.nulls, &bool_col.values))
+                {
+                    if is_null {
+                        0.hash(hasher);
+                    } else {
+                        value.hash(hasher);
                     }
                 }
             }
         }
-
-        let row_hashes = row_hashers
-            .iter()
-            .map(|hasher| hasher.finish())
-            .collect::<Vec<_>>();
-
-        return row_hashes;
     }
 
-    pub fn batch_equals(columns: &[&Column], equalities: &[(usize, usize)]) -> Vec<bool> {
-        let mut is_equal = (0..equalities.len()).map(|_| true).collect::<Vec<_>>();
-
-        for col in columns {
-            match &col.values {
-                ColumnValues::Text(inner_col) => {
-                    for (idx, (left_idx, right_idx)) in equalities.iter().enumerate() {
-                        if is_equal[idx]
-                            && inner_col.records[*left_idx].start_idx
-                                != inner_col.records[*right_idx].start_idx
-                        {
-                            is_equal[idx] = false;
-                        }
+    pub fn batch_equals(&self, equalities: &[(usize, usize)], is_equal: &mut Vec<bool>) {
+        match &self.values {
+            ColumnValues::Text(inner_col) => {
+                for (idx, (left_idx, right_idx)) in equalities.iter().enumerate() {
+                    if is_equal[idx]
+                        && inner_col.records[*left_idx].start_idx
+                            != inner_col.records[*right_idx].start_idx
+                    {
+                        is_equal[idx] = false;
                     }
                 }
-                ColumnValues::Float64(inner_col) => {
-                    for (idx, (left_idx, right_idx)) in equalities.iter().enumerate() {
-                        if is_equal[idx]
-                            && inner_col.values[*left_idx] != inner_col.values[*right_idx]
-                        {
-                            is_equal[idx] = false;
-                        }
+            }
+            ColumnValues::Float64(inner_col) => {
+                for (idx, (left_idx, right_idx)) in equalities.iter().enumerate() {
+                    if is_equal[idx] && inner_col.values[*left_idx] != inner_col.values[*right_idx]
+                    {
+                        is_equal[idx] = false;
                     }
                 }
-                ColumnValues::Bool(inner_col) => {
-                    for (idx, (left_idx, right_idx)) in equalities.iter().enumerate() {
-                        if is_equal[idx]
-                            && inner_col.values.at(*left_idx) != inner_col.values.at(*right_idx)
-                        {
-                            is_equal[idx] = false;
-                        }
+            }
+            ColumnValues::Bool(inner_col) => {
+                for (idx, (left_idx, right_idx)) in equalities.iter().enumerate() {
+                    if is_equal[idx]
+                        && inner_col.values.at(*left_idx) != inner_col.values.at(*right_idx)
+                    {
+                        is_equal[idx] = false;
                     }
                 }
             }
         }
-
-        return is_equal;
     }
 
     pub fn batch_aggregate(
-        column: &Column,
+        &self,
         aggregation_type: &AggregationType,
         groups: &[Group],
         row_indexes: &[usize],
-    ) -> Column {
+    ) -> InnerColumn {
         return match aggregation_type {
-            AggregationType::Sum => match &column.values {
+            AggregationType::Sum => match &self.values {
                 ColumnValues::Float64(values) => {
                     let mut out_nulls = BitVec::new();
                     let mut out_values = Vec::<f64>::with_capacity(groups.len());
@@ -303,7 +398,7 @@ impl Column {
                         let mut val: f64 = 0.0;
                         for group_row_idx in group.start_idx..(group.start_idx + group.len) {
                             let row_idx = row_indexes[group_row_idx];
-                            if !column.nulls.at(row_idx) {
+                            if !self.nulls.at(row_idx) {
                                 has_non_null = true;
                                 val += values.values[row_idx];
                             }
@@ -312,7 +407,7 @@ impl Column {
                         out_values.push(val);
                     }
 
-                    Column {
+                    InnerColumn {
                         nulls: out_nulls,
                         values: ColumnValues::Float64(Float64ColumnValues { values: out_values }),
                     }
@@ -321,17 +416,17 @@ impl Column {
                     panic!("Unsupported SUM agg for this col type");
                 }
             },
-            AggregationType::First => match &column.values {
+            AggregationType::First => match &self.values {
                 ColumnValues::Float64(values) => {
                     let mut out_nulls = BitVec::new();
                     let mut out_values = Vec::<f64>::with_capacity(groups.len());
                     for group in groups {
                         let first_row_idx = row_indexes[group.start_idx];
-                        out_nulls.push(column.nulls.at(first_row_idx));
+                        out_nulls.push(self.nulls.at(first_row_idx));
                         out_values.push(values.values[first_row_idx]);
                     }
 
-                    Column {
+                    InnerColumn {
                         nulls: out_nulls,
                         values: ColumnValues::Float64(Float64ColumnValues { values: out_values }),
                     }
@@ -343,7 +438,7 @@ impl Column {
         };
     }
 
-    pub fn from_string_list(col_type: &str, values: &[Option<String>]) -> Column {
+    pub fn from_string_list(col_type: &str, values: &[Option<String>]) -> InnerColumn {
         return match col_type {
             "text" => {
                 let mut builder = TextColBuilder::new(values.len());
@@ -383,7 +478,7 @@ impl Column {
                     }
                 }
 
-                Column {
+                InnerColumn {
                     nulls: new_nulls,
                     values: ColumnValues::Float64(Float64ColumnValues { values: new_values }),
                 }
@@ -414,7 +509,7 @@ impl Column {
                     }
                 }
 
-                Column {
+                InnerColumn {
                     nulls: new_nulls,
                     values: ColumnValues::Bool(BoolColumnValues { values: new_values }),
                 }
@@ -472,10 +567,10 @@ impl Column {
         };
     }
 
-    pub fn add(&self, other: &Column) -> Column {
+    pub fn add(&self, other: &InnerColumn) -> InnerColumn {
         return match &self.values {
             ColumnValues::Float64(inner_col) => match &other.values {
-                ColumnValues::Float64(other_inner_col) => Column {
+                ColumnValues::Float64(other_inner_col) => InnerColumn {
                     nulls: zip(&self.nulls, &other.nulls)
                         .map(|(left, right)| left || right)
                         .collect(),
@@ -495,13 +590,13 @@ impl Column {
         };
     }
 
-    pub fn less_than(&self, other: &Column) -> Column {
+    pub fn less_than(&self, other: &InnerColumn) -> InnerColumn {
         match &self.values {
             ColumnValues::Text(inner_col) => match &other.values {
                 ColumnValues::Text(other_col) => {
-                    let mut result_nulls = BitVec::with_capacity(self.get_n_rows());
-                    let mut result_vals = BitVec::with_capacity(self.get_n_rows());
-                    for idx in 0..self.get_n_rows() {
+                    let mut result_nulls = BitVec::with_capacity(self.len());
+                    let mut result_vals = BitVec::with_capacity(self.len());
+                    for idx in 0..self.len() {
                         let left_null = self.nulls.at(idx);
                         let right_null = other.nulls.at(idx);
 
@@ -516,7 +611,7 @@ impl Column {
                         }
                     }
 
-                    Column {
+                    InnerColumn {
                         nulls: result_nulls,
                         values: ColumnValues::Bool(BoolColumnValues {
                             values: result_vals,
@@ -527,9 +622,9 @@ impl Column {
             },
             ColumnValues::Float64(inner_col) => match &other.values {
                 ColumnValues::Float64(other_col) => {
-                    let mut result_nulls = BitVec::with_capacity(self.get_n_rows());
-                    let mut result_vals = BitVec::with_capacity(self.get_n_rows());
-                    for idx in 0..self.get_n_rows() {
+                    let mut result_nulls = BitVec::with_capacity(self.len());
+                    let mut result_vals = BitVec::with_capacity(self.len());
+                    for idx in 0..self.len() {
                         let left_null = self.nulls.at(idx);
                         let right_null = other.nulls.at(idx);
 
@@ -544,7 +639,7 @@ impl Column {
                         }
                     }
 
-                    Column {
+                    InnerColumn {
                         nulls: result_nulls,
                         values: ColumnValues::Bool(BoolColumnValues {
                             values: result_vals,
@@ -558,9 +653,9 @@ impl Column {
     }
 }
 
-impl PartialEq for Column {
+impl PartialEq for InnerColumn {
     fn eq(&self, other: &Self) -> bool {
-        if self.get_n_rows() != other.get_n_rows() {
+        if self.len() != other.len() {
             return false;
         }
 
@@ -740,8 +835,8 @@ impl<'a> TextColBuilder<'a> {
         });
     }
 
-    fn to_col(self) -> Column {
-        return Column {
+    fn to_col(self) -> InnerColumn {
+        return InnerColumn {
             nulls: self.nulls,
             values: ColumnValues::Text(TextColumnValues {
                 base_data: self.base_data,

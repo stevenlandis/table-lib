@@ -1,7 +1,11 @@
-use super::ast_node::AstNodeType;
-use super::column::AggregationType;
-use super::parser::{ParseError, Parser};
-use super::table::{Aggregation, RenameCol, Table};
+use std::rc::Rc;
+
+use crate::ast_node::{AstNode, AstNodeType};
+use crate::{Column, TableColumnWrapper};
+
+use crate::column::AggregationType;
+use crate::parser::{ParseError, Parser};
+use crate::table::{Aggregation, Table};
 
 impl Table {
     pub fn query(&self, query: &str) -> Result<Table, ParseError> {
@@ -17,22 +21,11 @@ impl Table {
             println!("Stmt: {:?}", stmt);
             match stmt.get_type() {
                 AstNodeType::SelectStmt(selects) => {
-                    let col_names = selects
-                        .iter_list()
-                        .map(|select| match select.get_type() {
-                            AstNodeType::Identifier(col_name) => col_name.clone(),
-                            _ => todo!(),
-                        })
-                        .collect::<Vec<_>>();
-                    let col_renames = col_names
-                        .iter()
-                        .map(|col| RenameCol {
-                            old_name: &col,
-                            new_name: &col,
-                        })
-                        .collect::<Vec<_>>();
-
-                    table = table.select_and_rename(col_renames.as_slice());
+                    table =
+                        Table::from_columns(selects.iter_list().map(|select| TableColumnWrapper {
+                            name: table.eval_expr_name(select),
+                            column: table.eval_col_expr(select),
+                        }));
                 }
                 AstNodeType::WhereStmt(stmt) => {
                     let col_name = match stmt.get_type() {
@@ -113,5 +106,20 @@ impl Table {
         }
 
         Ok(table)
+    }
+
+    fn eval_col_expr(&self, expr: &AstNode) -> Column {
+        match expr.get_type() {
+            AstNodeType::Identifier(col_name) => self.get_column(col_name.as_str()),
+            // AstNodeType::Add(left, right) => self.eval_col_expr(left) + self.eval_col_expr(right),
+            _ => todo!(),
+        }
+    }
+
+    fn eval_expr_name(&self, expr: &AstNode) -> String {
+        match expr.get_type() {
+            AstNodeType::Identifier(col_name) => col_name.clone(),
+            _ => todo!(),
+        }
     }
 }

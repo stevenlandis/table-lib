@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
-use std::rc::Rc;
 use std::time::Instant;
 use std::{collections::HashMap, hash::Hasher, iter::zip};
 
@@ -15,8 +14,8 @@ pub struct Table {
 
 #[derive(Debug, Clone)]
 pub struct TableColumnWrapper {
-    name: String,
-    column: Rc<Column>,
+    pub name: String,
+    pub column: Column,
 }
 
 impl PartialEq for Table {
@@ -46,6 +45,32 @@ impl PartialEq for Table {
 }
 
 impl Table {
+    pub fn from_columns(columns_iter: impl IntoIterator<Item = TableColumnWrapper>) -> Self {
+        let mut col_map = HashMap::<String, usize>::new();
+        let mut columns = Vec::<TableColumnWrapper>::new();
+        let mut n_rows: usize = 0;
+
+        let mut idx: usize = 0;
+        for col in columns_iter {
+            if idx == 0 {
+                n_rows = col.column.len();
+            } else {
+                assert_eq!(n_rows, col.column.len());
+            }
+
+            col_map.insert(col.name.clone(), columns.len());
+            columns.push(col);
+
+            idx += 1;
+        }
+
+        Table {
+            col_map,
+            columns,
+            n_rows,
+        }
+    }
+
     pub fn get_n_rows(&self) -> usize {
         return self.n_rows;
     }
@@ -59,11 +84,11 @@ impl Table {
 
         for col in &json_table.columns {
             let parsed_col = Column::from_string_list(&col._type, col.values.as_slice());
-            n_rows = parsed_col.get_n_rows();
+            n_rows = parsed_col.len();
             col_map.insert(col.name.clone(), columns.len());
             columns.push(TableColumnWrapper {
                 name: col.name.clone(),
-                column: Rc::new(parsed_col),
+                column: parsed_col,
             });
         }
 
@@ -96,7 +121,7 @@ impl Table {
     pub fn group_and_aggregate(&self, groups: &[&str], aggregations: &[Aggregation]) -> Table {
         let group_cols = groups
             .iter()
-            .map(|group_col| &*self.columns[self.col_map[*group_col]].column)
+            .map(|group_col| self.get_column(group_col))
             .collect::<Vec<_>>();
 
         let t0 = Instant::now();
@@ -179,7 +204,7 @@ impl Table {
         struct CollisionKey<'a> {
             row_idx: usize,
             row_hash: u64,
-            columns: &'a [&'a Column],
+            columns: &'a [Column],
         }
         impl Eq for CollisionKey<'_> {}
         impl PartialEq for CollisionKey<'_> {
@@ -304,22 +329,21 @@ impl Table {
 
             new_columns.push(TableColumnWrapper {
                 name: col.name.clone(),
-                column: Rc::new(new_col),
+                column: new_col,
             });
         }
 
         // add aggregation column values
         for agg in aggregations {
             let in_col = &self.columns[self.col_map[agg.in_col_name]].column;
-            let out_col = Column::batch_aggregate(
-                in_col,
+            let out_col = in_col.batch_aggregate(
                 &agg.agg_type,
                 final_groups.as_slice(),
                 final_group_row_indexes.as_slice(),
             );
             new_columns.push(TableColumnWrapper {
                 name: agg.out_col_name.to_string(),
-                column: Rc::new(out_col),
+                column: out_col,
             });
         }
         let new_col_map = new_columns
@@ -390,7 +414,7 @@ impl Table {
 
         let right_cols_for_hash = join_on
             .iter()
-            .map(|(_, col_name)| &*right.columns[right.col_map[*col_name]].column)
+            .map(|(_, col_name)| right.get_column(col_name))
             .collect::<Vec<_>>();
         let right_hashes =
             Column::get_col_hashes(right.get_n_rows(), right_cols_for_hash.as_slice());
@@ -418,7 +442,7 @@ impl Table {
 
         let left_cols_for_hash = join_on
             .iter()
-            .map(|(col_name, _)| &*self.columns[self.col_map[*col_name]].column)
+            .map(|(col_name, _)| self.get_column(col_name))
             .collect::<Vec<_>>();
         let left_hashes = Column::get_col_hashes(self.get_n_rows(), left_cols_for_hash.as_slice());
 
@@ -463,7 +487,7 @@ impl Table {
             new_col_map.insert(col.name.clone(), new_cols.len());
             new_cols.push(TableColumnWrapper {
                 name: col.name.clone(),
-                column: Rc::new(col.column.get_new_col_from_indexes(left_idxs.as_slice())),
+                column: col.column.get_new_col_from_indexes(left_idxs.as_slice()),
             });
         }
 
@@ -474,10 +498,9 @@ impl Table {
             new_col_map.insert(select.new_name.to_string(), new_cols.len());
             new_cols.push(TableColumnWrapper {
                 name: select.new_name.to_string(),
-                column: Rc::new(
-                    col.column
-                        .get_new_col_from_opt_indexes(right_idxs.as_slice()),
-                ),
+                column: col
+                    .column
+                    .get_new_col_from_opt_indexes(right_idxs.as_slice()),
             })
         }
 
@@ -488,7 +511,7 @@ impl Table {
         };
     }
 
-    pub fn get_column(&self, col_name: &str) -> Rc<Column> {
+    pub fn get_column(&self, col_name: &str) -> Column {
         return self.columns[self.col_map[col_name]].column.clone();
     }
 
@@ -503,15 +526,15 @@ impl Table {
                 .iter()
                 .map(|col| TableColumnWrapper {
                     name: col.name.clone(),
-                    column: Rc::new(col.column.from_indexes(&true_indexes)),
+                    column: col.column.from_indexes(&true_indexes),
                 })
                 .collect::<Vec<_>>(),
             n_rows: true_indexes.len(),
         };
     }
 
-    pub fn with_column(&self, col_name: &str, column: Rc<Column>) -> Table {
-        assert_eq!(self.get_n_rows(), column.get_n_rows());
+    pub fn with_column(&self, col_name: &str, column: Column) -> Table {
+        assert_eq!(self.get_n_rows(), column.len());
         let mut new_columns = self.columns.clone();
         let mut new_col_map = self.col_map.clone();
 

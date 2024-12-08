@@ -569,7 +569,7 @@ mod tests {
 
         let c0 = t0.get_column("v0");
         let c1 = t0.get_column("v1");
-        let c2 = c0.add(&c1);
+        let c2 = c0 + c1;
 
         let t1 = t0.with_column("v2", c2.into());
 
@@ -584,7 +584,7 @@ mod tests {
 
         assert_eq!(t1, tr);
 
-        let t2 = t0.with_column("v2", t0.get_column("v0").add(&t0.get_column("v1")).into());
+        let t2 = t0.with_column("v2", t0.get_column("v0") + t0.get_column("v1").into());
 
         assert_eq!(t2, tr);
     }

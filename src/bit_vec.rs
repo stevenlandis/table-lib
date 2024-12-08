@@ -20,6 +20,10 @@ impl BitVec {
         }
     }
 
+    pub fn with_capacity(_size: usize) -> Self {
+        Self::new()
+    }
+
     pub fn push(&mut self, value: bool) {
         let offset = self.length & 0b111;
         if offset == 0 {

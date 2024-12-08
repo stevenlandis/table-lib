@@ -49,6 +49,38 @@ impl Column {
         }
     }
 
+    pub fn get_true_indexes(&self) -> Vec<usize> {
+        let nulls = &self.nulls;
+        let vals = match &self.values {
+            ColumnValues::Bool(inner_col) => &inner_col.values,
+            _ => todo!(),
+        };
+
+        zip(nulls, vals)
+            .enumerate()
+            .filter(|(_, (null, val))| !null && *val)
+            .map(|(idx, _)| idx)
+            .collect::<Vec<_>>()
+    }
+
+    pub fn from_indexes(&self, indexes: &Vec<usize>) -> Column {
+        Column {
+            nulls: indexes
+                .iter()
+                .map(|idx| self.nulls.at(*idx))
+                .collect::<BitVec>(),
+            values: match &self.values {
+                ColumnValues::Text(text_col) => ColumnValues::Text(text_col.from_indexes(indexes)),
+                ColumnValues::Float64(float_col) => ColumnValues::Float64(Float64ColumnValues {
+                    values: indexes.iter().map(|idx| float_col.values[*idx]).collect(),
+                }),
+                ColumnValues::Bool(bool_col) => ColumnValues::Bool(BoolColumnValues {
+                    values: bool_col.values.from_indexes(indexes),
+                }),
+            },
+        }
+    }
+
     pub fn is_equal_at_index(&self, other: &Self, left_idx: usize, right_idx: usize) -> bool {
         if self.nulls.at(left_idx) != other.nulls.at(right_idx) {
             return false;
@@ -623,6 +655,24 @@ impl TextColumnValues {
                 &self.base_data[record.start_idx..record.start_idx + record.len],
             );
         }
+    }
+
+    fn from_indexes(&self, indexes: &Vec<usize>) -> TextColumnValues {
+        let mut base_data = Vec::<u8>::new();
+        let mut records = Vec::<TextColRecord>::with_capacity(indexes.len());
+
+        for idx in indexes {
+            let record = &self.records[*idx];
+            records.push(TextColRecord {
+                start_idx: base_data.len(),
+                len: record.len,
+            });
+            base_data.extend_from_slice(
+                &self.base_data[record.start_idx..record.start_idx + record.len],
+            );
+        }
+
+        TextColumnValues { base_data, records }
     }
 }
 

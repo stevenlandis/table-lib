@@ -3,7 +3,7 @@ mod tests {
     use table_lib::*;
 
     #[test]
-    fn query_basic() {
+    fn basic_select() {
         let table = Table::from_json_str(
             r#"
             {
@@ -35,6 +35,42 @@ mod tests {
                 r#"{"columns":[
                     {"name":"text_col1","type":"text","values":["val a","val b",null]},
                     {"name":"text_col0","type":"text","values":["val0","val1",null]}
+                ]}"#
+            )
+        );
+    }
+
+    #[test]
+    fn basic_where() {
+        let table = Table::from_json_str(
+            r#"
+            {
+                "columns": [
+                    {
+                        "name": "id",
+                        "type": "text",
+                        "values": ["id0", "id1", "id2", "id3"]
+                    },
+                    {
+                        "name": "condition",
+                        "type": "bool",
+                        "values": ["false", "true", null, "true"]
+                    }
+                ]
+            }
+            "#,
+        );
+
+        let result = table.query("where condition select id").unwrap();
+        assert_eq!(
+            result,
+            Table::from_json_str(
+                r#"{"columns":[
+                    {
+                        "name": "id",
+                        "type": "text",
+                        "values": ["id1", "id3"]
+                    }
                 ]}"#
             )
         );

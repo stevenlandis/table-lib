@@ -51,6 +51,10 @@ impl BitVec {
             index: 0,
         }
     }
+
+    pub fn from_indexes(&self, indexes: &Vec<usize>) -> BitVec {
+        indexes.iter().map(|idx| self.at(*idx)).collect::<BitVec>()
+    }
 }
 
 impl<'a> IntoIterator for &'a BitVec {

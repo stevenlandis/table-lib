@@ -494,6 +494,24 @@ impl Table {
         return self.columns[self.col_map[col_name]].column.clone();
     }
 
+    pub fn where_col_is_true(&self, col_name: &str) -> Table {
+        let col = self.get_column(col_name);
+        let true_indexes = col.get_true_indexes();
+
+        return Table {
+            col_map: self.col_map.clone(),
+            columns: self
+                .columns
+                .iter()
+                .map(|col| TableColumnWrapper {
+                    name: col.name.clone(),
+                    column: Rc::new(col.column.from_indexes(&true_indexes)),
+                })
+                .collect::<Vec<_>>(),
+            n_rows: true_indexes.len(),
+        };
+    }
+
     pub fn with_column(&self, col_name: &str, column: Rc<Column>) -> Table {
         assert_eq!(self.get_n_rows(), column.get_n_rows());
         let mut new_columns = self.columns.clone();
@@ -541,6 +559,14 @@ impl Table {
                         .collect::<Vec<_>>();
 
                     table = table.select_and_rename(col_renames.as_slice());
+                }
+                AstNodeType::WhereStmt(stmt) => {
+                    let col_name = match stmt.get_type() {
+                        AstNodeType::Identifier(col_name) => col_name.clone(),
+                        _ => todo!(),
+                    };
+
+                    table = table.where_col_is_true(&col_name)
                 }
                 _ => todo!(),
             }

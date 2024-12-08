@@ -462,6 +462,68 @@ impl Column {
             }
         };
     }
+
+    pub fn less_than(&self, other: &Column) -> Column {
+        match &self.values {
+            ColumnValues::Text(inner_col) => match &other.values {
+                ColumnValues::Text(other_col) => {
+                    let mut result_nulls = BitVec::with_capacity(self.get_n_rows());
+                    let mut result_vals = BitVec::with_capacity(self.get_n_rows());
+                    for idx in 0..self.get_n_rows() {
+                        let left_null = self.nulls.at(idx);
+                        let right_null = other.nulls.at(idx);
+
+                        if left_null || right_null {
+                            result_nulls.push(true);
+                            result_vals.push(false);
+                        } else {
+                            let left_val = inner_col.get_str_at_idx(idx);
+                            let right_val = other_col.get_str_at_idx(idx);
+                            result_nulls.push(false);
+                            result_vals.push(left_val < right_val);
+                        }
+                    }
+
+                    Column {
+                        nulls: result_nulls,
+                        values: ColumnValues::Bool(BoolColumnValues {
+                            values: result_vals,
+                        }),
+                    }
+                }
+                _ => todo!(),
+            },
+            ColumnValues::Float64(inner_col) => match &other.values {
+                ColumnValues::Float64(other_col) => {
+                    let mut result_nulls = BitVec::with_capacity(self.get_n_rows());
+                    let mut result_vals = BitVec::with_capacity(self.get_n_rows());
+                    for idx in 0..self.get_n_rows() {
+                        let left_null = self.nulls.at(idx);
+                        let right_null = other.nulls.at(idx);
+
+                        if left_null || right_null {
+                            result_nulls.push(true);
+                            result_vals.push(false);
+                        } else {
+                            let left_val = inner_col.values[idx];
+                            let right_val = other_col.values[idx];
+                            result_nulls.push(false);
+                            result_vals.push(left_val < right_val);
+                        }
+                    }
+
+                    Column {
+                        nulls: result_nulls,
+                        values: ColumnValues::Bool(BoolColumnValues {
+                            values: result_vals,
+                        }),
+                    }
+                }
+                _ => todo!(),
+            },
+            _ => todo!(),
+        }
+    }
 }
 
 impl PartialEq for Column {

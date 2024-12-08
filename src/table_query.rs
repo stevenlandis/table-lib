@@ -111,7 +111,13 @@ impl Table {
     fn eval_col_expr(&self, expr: &AstNode) -> Column {
         match expr.get_type() {
             AstNodeType::Identifier(col_name) => self.get_column(col_name.as_str()),
-            // AstNodeType::Add(left, right) => self.eval_col_expr(left) + self.eval_col_expr(right),
+            AstNodeType::Add(left, right) => match right.get_type() {
+                AstNodeType::Float64(right_val) => self.eval_col_expr(left).add_f64(*right_val),
+                AstNodeType::Integer(right_val) => {
+                    self.eval_col_expr(left).add_f64(*right_val as f64)
+                }
+                _ => self.eval_col_expr(left) + self.eval_col_expr(right),
+            },
             _ => todo!(),
         }
     }
@@ -119,6 +125,12 @@ impl Table {
     fn eval_expr_name(&self, expr: &AstNode) -> String {
         match expr.get_type() {
             AstNodeType::Identifier(col_name) => col_name.clone(),
+            AstNodeType::Add(left, right) => format!(
+                "({} + {})",
+                self.eval_expr_name(left),
+                self.eval_expr_name(right)
+            ),
+            AstNodeType::Integer(val) => format!("{}", val),
             _ => todo!(),
         }
     }

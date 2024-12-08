@@ -101,6 +101,12 @@ impl Column {
     pub fn is_equal_at_index(&self, other: &Self, left_idx: usize, right_idx: usize) -> bool {
         self.col.is_equal_at_index(&other.col, left_idx, right_idx)
     }
+
+    pub fn add_f64(&self, val: f64) -> Column {
+        Column {
+            col: Rc::new(self.col.add_f64(val)),
+        }
+    }
 }
 
 impl PartialEq for Column {
@@ -588,6 +594,22 @@ impl InnerColumn {
                 panic!("unsupported");
             }
         };
+    }
+
+    pub fn add_f64(&self, val: f64) -> InnerColumn {
+        match &self.values {
+            ColumnValues::Float64(inner_col) => InnerColumn {
+                nulls: self.nulls.clone(),
+                values: ColumnValues::Float64(Float64ColumnValues {
+                    values: inner_col
+                        .values
+                        .iter()
+                        .map(|col_val| col_val + val)
+                        .collect(),
+                }),
+            },
+            _ => todo!(),
+        }
     }
 
     pub fn less_than(&self, other: &InnerColumn) -> InnerColumn {

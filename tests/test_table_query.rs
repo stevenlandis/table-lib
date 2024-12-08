@@ -129,4 +129,41 @@ mod tests {
             )
         );
     }
+
+    #[test]
+    fn basic_select_expr() {
+        let table = Table::from_json_str(
+            r#"
+            {
+                "columns": [
+                    {
+                        "name": "val0",
+                        "type": "float64",
+                        "values": ["0", "1", "2"]
+                    },
+                    {
+                        "name": "val1",
+                        "type": "float64",
+                        "values": ["3", "4", "5"]
+                    }
+                ]
+            }
+            "#,
+        );
+
+        let result = table.query("select val0 + val1 + 1").unwrap();
+
+        assert_eq!(
+            result,
+            Table::from_json_str(
+                r#"{"columns":[
+                    {
+                        "name": "((val0 + val1) + 1)",
+                        "type": "float64",
+                        "values": ["4", "6", "8"]
+                    }
+                ]}"#
+            )
+        );
+    }
 }

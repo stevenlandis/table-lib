@@ -1,3 +1,4 @@
+#[derive(Clone)]
 pub struct BitVec {
     values: Vec<u8>,
     length: usize,

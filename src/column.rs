@@ -107,6 +107,12 @@ impl Column {
             col: Rc::new(self.col.add_f64(val)),
         }
     }
+
+    pub fn less_than(&self, other: &Column) -> Column {
+        Column {
+            col: Rc::new(self.col.less_than(&other.col)),
+        }
+    }
 }
 
 impl PartialEq for Column {
@@ -148,27 +154,27 @@ impl InnerColumn {
         }
     }
 
-    pub fn eq_at_indexes(&self, left_idx: usize, right_idx: usize) -> bool {
-        if self.nulls.at(left_idx) != self.nulls.at(right_idx) {
-            return false;
-        }
-        if self.nulls.at(left_idx) {
-            return true;
-        }
+    // pub fn eq_at_indexes(&self, left_idx: usize, right_idx: usize) -> bool {
+    //     if self.nulls.at(left_idx) != self.nulls.at(right_idx) {
+    //         return false;
+    //     }
+    //     if self.nulls.at(left_idx) {
+    //         return true;
+    //     }
 
-        match &self.values {
-            ColumnValues::Text(inner_col) => {
-                return inner_col.records[left_idx].start_idx
-                    == inner_col.records[right_idx].start_idx;
-            }
-            ColumnValues::Float64(inner_col) => {
-                return inner_col.values[left_idx] == inner_col.values[right_idx];
-            }
-            ColumnValues::Bool(inner_col) => {
-                return inner_col.values.at(left_idx) == inner_col.values.at(right_idx);
-            }
-        }
-    }
+    //     match &self.values {
+    //         ColumnValues::Text(inner_col) => {
+    //             return inner_col.records[left_idx].start_idx
+    //                 == inner_col.records[right_idx].start_idx;
+    //         }
+    //         ColumnValues::Float64(inner_col) => {
+    //             return inner_col.values[left_idx] == inner_col.values[right_idx];
+    //         }
+    //         ColumnValues::Bool(inner_col) => {
+    //             return inner_col.values.at(left_idx) == inner_col.values.at(right_idx);
+    //         }
+    //     }
+    // }
 
     pub fn get_true_indexes(&self) -> Vec<usize> {
         let nulls = &self.nulls;

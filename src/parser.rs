@@ -912,7 +912,6 @@ enum ParseErrorType {
     MissingSpaceAfterFrom,
     MissingSpaceAfterWhere,
     MissingSpaceAfterGroup,
-    MissingSpaceAfterGroupBy,
     NoExprAfterOperator,
     NoExprAfterUnaryOperator,
     NoParenContents,

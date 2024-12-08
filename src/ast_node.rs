@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{rc::Rc, result};
 
 #[derive(Clone)]
 pub struct AstNode {
@@ -84,31 +84,43 @@ impl AstNode {
     }
 
     pub fn iter_list(&self) -> AstNodeIterator {
-        AstNodeIterator { node: Some(self) }
+        AstNodeIterator::new(Some(self))
     }
 }
 
 pub struct AstNodeIterator<'a> {
-    node: Option<&'a AstNode>,
+    nodes: Vec<&'a AstNode>,
+}
+
+impl<'a> AstNodeIterator<'a> {
+    pub fn new(node: Option<&'a AstNode>) -> Self {
+        let mut nodes = Vec::<&AstNode>::new();
+        match node {
+            None => {}
+            Some(node) => {
+                nodes.push(node);
+            }
+        }
+
+        AstNodeIterator { nodes }
+    }
 }
 
 impl<'a> Iterator for AstNodeIterator<'a> {
     type Item = &'a AstNode;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match &self.node {
-            None => None,
-            Some(node) => match node.get_type() {
-                AstNodeType::ListNode(head, rest) => {
-                    self.node = Some(rest);
-                    Some(head)
-                }
-                _ => {
-                    let result = node.clone();
-                    self.node = None;
-                    Some(result)
-                }
-            },
+        loop {
+            match self.nodes.pop() {
+                None => return None,
+                Some(node) => match node.get_type() {
+                    AstNodeType::ListNode(left, right) => {
+                        self.nodes.push(right);
+                        self.nodes.push(left);
+                    }
+                    _ => return Some(node),
+                },
+            }
         }
     }
 }

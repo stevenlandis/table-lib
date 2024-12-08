@@ -604,6 +604,25 @@ impl Table {
                                             agg_type: AggregationType::Sum,
                                         }
                                     }
+                                    "first" => {
+                                        let col_name = match args {
+                                            Some(args) => {
+                                                match args.iter_list().nth(0).unwrap().get_type() {
+                                                    AstNodeType::Identifier(col_name) => {
+                                                        col_name.as_str()
+                                                    }
+                                                    _ => todo!(),
+                                                }
+                                            }
+                                            _ => todo!(),
+                                        };
+
+                                        Aggregation {
+                                            in_col_name: col_name,
+                                            out_col_name: col_name,
+                                            agg_type: AggregationType::First,
+                                        }
+                                    }
                                     _ => todo!(),
                                 },
                                 _ => todo!(),

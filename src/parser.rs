@@ -442,7 +442,7 @@ impl<'a> Parser<'a> {
                 }
                 Some(expr) => match expr {
                     Err(err) => return Some(Err(err)),
-                    Ok(expr) => AstNode::new(AstNodeType::ListNode(expr, exprs)),
+                    Ok(expr) => AstNode::new(AstNodeType::ListNode(exprs, expr)),
                 },
             };
 

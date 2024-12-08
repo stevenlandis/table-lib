@@ -568,6 +568,53 @@ impl Table {
 
                     table = table.where_col_is_true(&col_name)
                 }
+                AstNodeType::GroupBy { group_by, get_expr } => {
+                    let group_col_name_refs = group_by
+                        .iter_list()
+                        .map(|col| match col.get_type() {
+                            AstNodeType::Identifier(name) => name.as_str(),
+                            _ => todo!("Add support for {:?}", col.get_type()),
+                        })
+                        .collect::<Vec<_>>();
+
+                    let aggs = get_expr
+                        .iter_list()
+                        .map(|get_expr| match get_expr.get_type() {
+                            AstNodeType::FcnCall {
+                                name: fcn_name,
+                                args,
+                            } => match fcn_name.get_type() {
+                                AstNodeType::Identifier(fcn_name) => match fcn_name.as_str() {
+                                    "sum" => {
+                                        let col_name = match args {
+                                            Some(args) => {
+                                                match args.iter_list().nth(0).unwrap().get_type() {
+                                                    AstNodeType::Identifier(col_name) => {
+                                                        col_name.as_str()
+                                                    }
+                                                    _ => todo!(),
+                                                }
+                                            }
+                                            _ => todo!(),
+                                        };
+
+                                        Aggregation {
+                                            in_col_name: col_name,
+                                            out_col_name: col_name,
+                                            agg_type: AggregationType::Sum,
+                                        }
+                                    }
+                                    _ => todo!(),
+                                },
+                                _ => todo!(),
+                            },
+                            _ => todo!(),
+                        })
+                        .collect::<Vec<_>>();
+
+                    table =
+                        table.group_and_aggregate(group_col_name_refs.as_slice(), aggs.as_slice())
+                }
                 _ => todo!(),
             }
         }

@@ -442,7 +442,7 @@ impl<'a> Parser<'a> {
                 }
                 Some(expr) => match expr {
                     Err(err) => return Some(Err(err)),
-                    Ok(expr) => AstNode::new(AstNodeType::ListNode(exprs, expr)),
+                    Ok(expr) => AstNode::new(AstNodeType::ListNode(expr, exprs)),
                 },
             };
 
@@ -510,7 +510,19 @@ impl<'a> Parser<'a> {
                 },
             };
 
-            let get_expr = match self.parse_expr() {
+            self.parse_ws();
+
+            if !self.parse_str_literal("get") {
+                return Some(Err(self.get_err(ParseErrorType::MissingGroupByGet)));
+            }
+
+            if !self.parse_at_least_one_ws() {
+                return Some(Err(
+                    self.get_err(ParseErrorType::MissingSpaceAfterGroupByGet)
+                ));
+            }
+
+            let get_expr = match self.parse_comma_separated_expr() {
                 None => return Some(Err(self.get_err(ParseErrorType::GroupByMissingGet))),
                 Some(expr) => match expr {
                     Err(err) => return Some(Err(err)),
@@ -891,14 +903,16 @@ enum ParseErrorType {
     NoConditionAfterWhereStatement,
     MissingBy,
     MissingExpressionAfterComma,
-    GroupByFieldsMissingComma,
     GroupByMissingGet,
     GroupByMissingGroupByField,
+    MissingGroupByGet,
+    MissingSpaceAfterGroupByGet,
     MissingSpaceAfterSelect,
     MissingSelectField,
     MissingSpaceAfterFrom,
     MissingSpaceAfterWhere,
     MissingSpaceAfterGroup,
+    MissingSpaceAfterGroupBy,
     NoExprAfterOperator,
     NoExprAfterUnaryOperator,
     NoParenContents,

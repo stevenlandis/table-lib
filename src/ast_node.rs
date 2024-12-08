@@ -84,27 +84,24 @@ impl AstNode {
     }
 
     pub fn iter_list(&self) -> AstNodeIterator {
-        AstNodeIterator {
-            node: Some(self.clone()),
-        }
+        AstNodeIterator { node: Some(self) }
     }
 }
 
-pub struct AstNodeIterator {
-    node: Option<AstNode>,
+pub struct AstNodeIterator<'a> {
+    node: Option<&'a AstNode>,
 }
 
-impl Iterator for AstNodeIterator {
-    type Item = AstNode;
+impl<'a> Iterator for AstNodeIterator<'a> {
+    type Item = &'a AstNode;
 
     fn next(&mut self) -> Option<Self::Item> {
         match &self.node {
             None => None,
             Some(node) => match node.get_type() {
                 AstNodeType::ListNode(head, rest) => {
-                    let result = head.clone();
-                    self.node = Some(rest.clone());
-                    Some(result)
+                    self.node = Some(rest);
+                    Some(head)
                 }
                 _ => {
                     let result = node.clone();

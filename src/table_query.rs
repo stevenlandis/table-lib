@@ -19,10 +19,18 @@ impl Table {
             println!("Stmt: {:?}", stmt);
             match stmt.get_type() {
                 AstNodeType::SelectStmt(selects) => {
+                    let len = selects
+                        .iter_list()
+                        .fold(None, |acc, select| match acc {
+                            Some(acc) => Some(acc),
+                            None => self.get_expr_len(select),
+                        })
+                        .unwrap_or(1);
+
                     table =
                         Table::from_columns(selects.iter_list().map(|select| TableColumnWrapper {
-                            name: table.eval_expr_name(select),
-                            column: table.eval_col_expr(select),
+                            name: table.get_expr_name(select),
+                            column: table.eval_col_expr(select, len),
                         }));
                 }
                 AstNodeType::WhereStmt(stmt) => {
@@ -106,30 +114,63 @@ impl Table {
         Ok(table)
     }
 
-    fn eval_col_expr(&self, expr: &AstNode) -> Column {
+    fn eval_col_expr(&self, expr: &AstNode, len: usize) -> Column {
         match expr.get_type() {
             AstNodeType::Identifier(col_name) => self.get_column(col_name.as_str()),
-            AstNodeType::Add(left, right) => match right.get_type() {
-                AstNodeType::Float64(right_val) => self.eval_col_expr(left).add_f64(*right_val),
-                AstNodeType::Integer(right_val) => {
-                    self.eval_col_expr(left).add_f64(*right_val as f64)
-                }
-                _ => self.eval_col_expr(left) + self.eval_col_expr(right),
-            },
+            AstNodeType::Add(left, right) => {
+                self.eval_col_expr(left, len) + self.eval_col_expr(right, len)
+            }
+            AstNodeType::Float64(val) => Column::from_repeated_f64(*val, len),
+            AstNodeType::Integer(val) => Column::from_repeated_f64(*val as f64, len),
             _ => todo!(),
         }
     }
 
-    fn eval_expr_name(&self, expr: &AstNode) -> String {
+    fn get_expr_name(&self, expr: &AstNode) -> String {
         match expr.get_type() {
             AstNodeType::Identifier(col_name) => col_name.clone(),
             AstNodeType::Add(left, right) => format!(
                 "({} + {})",
-                self.eval_expr_name(left),
-                self.eval_expr_name(right)
+                self.get_expr_name(left),
+                self.get_expr_name(right)
             ),
             AstNodeType::Integer(val) => format!("{}", val),
+            AstNodeType::Float64(val) => format!("{}", val),
+            _ => todo!(),
+        }
+    }
+
+    fn get_expr_len(&self, expr: &AstNode) -> Option<usize> {
+        match expr.get_type() {
+            AstNodeType::Identifier(_) => Some(self.get_n_rows()),
+            AstNodeType::Float64(_) => None,
+            AstNodeType::Integer(_) => None,
+            AstNodeType::Add(left, right) => match self.get_expr_len(left) {
+                Some(len) => Some(len),
+                None => self.get_expr_len(right),
+            },
             _ => todo!(),
         }
     }
 }
+
+// enum ExprNode {
+//     Column(Column),
+//     Float64(f64),
+// }
+
+// impl ExprNode {
+//     fn get_len(&self) -> Option<usize> {
+//         match self {
+//             ExprNode::Column(col) => Some(col.len()),
+//             ExprNode::Float64(_) => None,
+//         }
+//     }
+
+//     fn to_col(self, len: usize) -> Column {
+//         match self {
+//             ExprNode::Column(col) => col,
+//             ExprNode::Float64(val) => Column::from_repeated_f64(val, len),
+//         }
+//     }
+// }

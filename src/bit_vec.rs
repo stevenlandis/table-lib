@@ -25,6 +25,15 @@ impl BitVec {
         Self::new()
     }
 
+    pub fn from_repeated_value(val: bool, len: usize) -> Self {
+        let mut result = BitVec::with_capacity(len);
+        for _ in 0..len {
+            result.push(val);
+        }
+
+        result
+    }
+
     pub fn push(&mut self, value: bool) {
         let offset = self.length & 0b111;
         if offset == 0 {

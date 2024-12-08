@@ -17,6 +17,17 @@ impl core::fmt::Debug for Column {
 }
 
 impl Column {
+    pub fn from_repeated_f64(val: f64, len: usize) -> Column {
+        Column {
+            col: Rc::new(InnerColumn {
+                nulls: BitVec::from_repeated_value(false, len),
+                values: ColumnValues::Float64(Float64ColumnValues {
+                    values: vec![val; len],
+                }),
+            }),
+        }
+    }
+
     pub fn get_true_indexes(&self) -> Vec<usize> {
         self.col.get_true_indexes()
     }

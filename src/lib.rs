@@ -7,3 +7,4 @@ pub use table::*;
 mod ast_node;
 mod bit_vec;
 mod parser;
+mod table_query;

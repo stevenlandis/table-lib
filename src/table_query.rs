@@ -122,6 +122,7 @@ impl Table {
             }
             AstNodeType::Float64(val) => Column::from_repeated_f64(*val, len),
             AstNodeType::Integer(val) => Column::from_repeated_f64(*val as f64, len),
+            AstNodeType::Alias { expr, alias: _ } => self.eval_col_expr(expr, len),
             _ => todo!(),
         }
     }
@@ -136,6 +137,10 @@ impl Table {
             ),
             AstNodeType::Integer(val) => format!("{}", val),
             AstNodeType::Float64(val) => format!("{}", val),
+            AstNodeType::Alias { expr: _, alias } => match alias.get_type() {
+                AstNodeType::Identifier(alias) => alias.clone(),
+                _ => todo!(),
+            },
             _ => todo!(),
         }
     }
@@ -149,6 +154,10 @@ impl Table {
                 Some(len) => Some(len),
                 None => self.get_expr_len(right),
             },
+            AstNodeType::Alias {
+                expr: node,
+                alias: _,
+            } => self.get_expr_len(node),
             _ => todo!(),
         }
     }

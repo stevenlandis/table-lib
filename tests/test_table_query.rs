@@ -203,4 +203,43 @@ mod tests {
             )
         );
     }
+
+    #[test]
+    fn select_alias() {
+        let table = Table::from_json_str(
+            r#"
+            {
+                "columns": [
+                    {
+                        "name": "val0",
+                        "type": "float64",
+                        "values": ["0", "1", "2"]
+                    }
+                ]
+            }
+            "#,
+        );
+
+        let result = table
+            .query("select val0 as my_alias, val0 as other_alias")
+            .unwrap();
+
+        assert_eq!(
+            result,
+            Table::from_json_str(
+                r#"{"columns":[
+                    {
+                        "name": "my_alias",
+                        "type": "float64",
+                        "values": ["0", "1", "2"]
+                    },
+                    {
+                        "name": "other_alias",
+                        "type": "float64",
+                        "values": ["0", "1", "2"]
+                    }
+                ]}"#
+            )
+        );
+    }
 }

@@ -414,8 +414,42 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_alias(&mut self) -> Option<Result<AstNode, ParseError>> {
+        let mut result = match self.parse_expr() {
+            None => {
+                return Some(Err(
+                    self.get_err(ParseErrorType::MissingExpressionAfterComma)
+                ))
+            }
+            Some(expr) => match expr {
+                Err(err) => return Some(Err(err)),
+                Ok(expr) => expr,
+            },
+        };
+
+        self.parse_ws();
+
+        if self.parse_str_literal("as") {
+            if !self.parse_at_least_one_ws() {
+                return Some(Err(self.get_err(ParseErrorType::MissingSpace)));
+            }
+
+            let alias = match self.parse_identifier() {
+                None => return Some(Err(self.get_err(ParseErrorType::MissingAlias))),
+                Some(alias) => alias,
+            };
+
+            result = AstNode::new(AstNodeType::Alias {
+                expr: result,
+                alias,
+            })
+        }
+
+        Some(Ok(result))
+    }
+
     fn parse_comma_separated_expr(&mut self) -> Option<Result<AstNode, ParseError>> {
-        let mut exprs = match self.parse_expr() {
+        let mut exprs = match self.parse_alias() {
             None => {
                 return Some(Err(
                     self.get_err(ParseErrorType::MissingExpressionAfterComma)
@@ -434,7 +468,7 @@ impl<'a> Parser<'a> {
             }
             self.parse_ws();
 
-            exprs = match self.parse_expr() {
+            exprs = match self.parse_alias() {
                 None => {
                     return Some(Err(
                         self.get_err(ParseErrorType::MissingExpressionAfterComma)
@@ -908,6 +942,8 @@ enum ParseErrorType {
     MissingGroupByGet,
     MissingSpaceAfterGroupByGet,
     MissingSpaceAfterSelect,
+    MissingAlias,
+    MissingSpace,
     MissingSelectField,
     MissingSpaceAfterFrom,
     MissingSpaceAfterWhere,

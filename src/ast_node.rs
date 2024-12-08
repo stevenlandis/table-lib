@@ -28,6 +28,10 @@ pub enum AstNodeType {
     Null,
     // SubString(String),
     Identifier(String),
+    Alias {
+        expr: AstNode,
+        alias: AstNode,
+    },
     Integer(u64),
     Float64(f64),
     Bool(bool),

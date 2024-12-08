@@ -153,24 +153,3 @@ impl Table {
         }
     }
 }
-
-// enum ExprNode {
-//     Column(Column),
-//     Float64(f64),
-// }
-
-// impl ExprNode {
-//     fn get_len(&self) -> Option<usize> {
-//         match self {
-//             ExprNode::Column(col) => Some(col.len()),
-//             ExprNode::Float64(_) => None,
-//         }
-//     }
-
-//     fn to_col(self, len: usize) -> Column {
-//         match self {
-//             ExprNode::Column(col) => col,
-//             ExprNode::Float64(val) => Column::from_repeated_f64(val, len),
-//         }
-//     }
-// }

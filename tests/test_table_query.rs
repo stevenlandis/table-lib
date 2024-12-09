@@ -3,7 +3,7 @@ mod tests {
     use table_lib::*;
 
     #[test]
-    fn basic_select() {
+    fn basic_get() {
         let table = Table::from_json_str(
             r#"
             {
@@ -28,7 +28,7 @@ mod tests {
             "#,
         );
 
-        let result = table.query("select text_col1 , text_col0").unwrap();
+        let result = table.query("get text_col1 , text_col0").unwrap();
 
         assert_eq!(
             result,
@@ -62,7 +62,7 @@ mod tests {
             "#,
         );
 
-        let result = table.query("where condition select id").unwrap();
+        let result = table.query("where condition get id").unwrap();
 
         assert_eq!(
             result,
@@ -131,7 +131,7 @@ mod tests {
     }
 
     #[test]
-    fn basic_select_expr() {
+    fn basic_get_expr() {
         let table = Table::from_json_str(
             r#"
             {
@@ -151,7 +151,7 @@ mod tests {
             "#,
         );
 
-        let result = table.query("select val0 + val1 + 1").unwrap();
+        let result = table.query("get val0 + val1 + 1").unwrap();
 
         assert_eq!(
             result,
@@ -183,7 +183,7 @@ mod tests {
             "#,
         );
 
-        let result = table.query("select 1.5, 1.5 + 2.5").unwrap();
+        let result = table.query("get 1.5, 1.5 + 2.5").unwrap();
 
         assert_eq!(
             result,
@@ -205,7 +205,7 @@ mod tests {
     }
 
     #[test]
-    fn select_alias() {
+    fn get_alias() {
         let table = Table::from_json_str(
             r#"
             {
@@ -221,7 +221,7 @@ mod tests {
         );
 
         let result = table
-            .query("select val0 as my_alias, val0 as other_alias")
+            .query("get val0 as my_alias, val0 as other_alias")
             .unwrap();
 
         assert_eq!(

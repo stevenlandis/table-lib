@@ -489,7 +489,7 @@ impl<'a> Parser<'a> {
     fn parse_statement(&mut self) -> Option<Result<AstNode, ParseError>> {
         self.parse_ws();
 
-        if self.parse_str_literal("select") {
+        if self.parse_str_literal("get") {
             if !self.parse_at_least_one_ws() {
                 return Some(Err(self.get_err(ParseErrorType::MissingSpaceAfterSelect)));
             }

@@ -118,6 +118,68 @@ impl Table {
         return serde_json::to_string(&json_table).unwrap();
     }
 
+    pub fn group(
+        &self,
+        group_fields: &[&str],
+        indexes: impl IntoIterator<Item = usize>,
+    ) -> GroupResult {
+        let group_cols = group_fields
+            .iter()
+            .map(|col_name| self.get_column(col_name))
+            .collect::<Vec<_>>();
+
+        struct HashKey<'a> {
+            row_idx: usize,
+            columns: &'a [Column],
+        }
+        impl Eq for HashKey<'_> {}
+        impl PartialEq for HashKey<'_> {
+            fn eq(&self, other: &Self) -> bool {
+                let results = Column::batch_equals(self.columns, &[(self.row_idx, other.row_idx)]);
+                return results[0];
+            }
+        }
+        impl Hash for HashKey<'_> {
+            fn hash<H: Hasher>(&self, state: &mut H) {
+                for col in self.columns {
+                    col.hash_at_index(state, self.row_idx);
+                }
+            }
+        }
+
+        let mut hash_to_group_idx = HashMap::<HashKey, usize>::new();
+
+        let mut group_first_indexes = Vec::<usize>::new();
+        let mut group_last_indexes = Vec::<usize>::new();
+        let mut next_indexes = Vec::<usize>::new();
+
+        for idx in indexes {
+            match hash_to_group_idx.entry(HashKey {
+                row_idx: idx,
+                columns: &group_cols,
+            }) {
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    let group_idx = group_first_indexes.len();
+                    entry.insert(group_idx);
+                    group_first_indexes.push(idx);
+                    group_last_indexes.push(idx);
+                    next_indexes.push(usize::MAX);
+                }
+                std::collections::hash_map::Entry::Occupied(entry) => {
+                    let group_idx = *entry.get();
+                    let last_idx = &mut group_last_indexes[group_idx];
+                    next_indexes[*last_idx] = idx;
+                    *last_idx = idx;
+                }
+            }
+        }
+
+        return GroupResult {
+            group_first_indexes,
+            next_indexes,
+        };
+    }
+
     pub fn group_and_aggregate(&self, groups: &[&str], aggregations: &[Aggregation]) -> Table {
         let group_cols = groups
             .iter()
@@ -550,6 +612,11 @@ impl Table {
             n_rows: self.n_rows,
         };
     }
+}
+
+pub struct GroupResult {
+    pub group_first_indexes: Vec<usize>,
+    pub next_indexes: Vec<usize>,
 }
 
 pub struct RenameCol<'a> {

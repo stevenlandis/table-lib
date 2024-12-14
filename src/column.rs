@@ -62,7 +62,8 @@ impl Column {
             .collect::<Vec<_>>();
 
         for col in columns {
-            col.col.update_col_hashes(&mut row_hashers);
+            col.col
+                .update_col_hashes(row_hashers.iter_mut().enumerate());
         }
 
         let row_hashes = row_hashers
@@ -71,6 +72,10 @@ impl Column {
             .collect::<Vec<_>>();
 
         return row_hashes;
+    }
+
+    pub fn hash_at_index<H: Hasher>(&self, state: &mut H, idx: usize) {
+        return self.col.hash_at_index(state, idx);
     }
 
     pub fn batch_equals(columns: &[Column], equalities: &[(usize, usize)]) -> Vec<bool> {
@@ -337,11 +342,14 @@ impl InnerColumn {
         }
     }
 
-    pub fn update_col_hashes(&self, row_hashers: &mut Vec<DefaultHasher>) {
+    pub fn update_col_hashes<'a, H: Hasher + 'a>(
+        &self,
+        row_hashers: impl IntoIterator<Item = (usize, &'a mut H)>,
+    ) {
         match &self.values {
             ColumnValues::Text(text_col) => {
-                for (idx, (hasher, is_null)) in zip(row_hashers, &self.nulls).enumerate() {
-                    if is_null {
+                for (idx, hasher) in row_hashers {
+                    if self.nulls.at(idx) {
                         0.hash(hasher);
                     } else {
                         text_col.get_str_at_idx(idx).hash(hasher);
@@ -349,28 +357,29 @@ impl InnerColumn {
                 }
             }
             ColumnValues::Float64(float_col) => {
-                for (hasher, (is_null, value)) in
-                    zip(row_hashers, zip(&self.nulls, &float_col.values))
-                {
-                    if is_null {
+                for (idx, hasher) in row_hashers {
+                    if self.nulls.at(idx) {
                         0.hash(hasher);
                     } else {
-                        (*value as u64).hash(hasher);
+                        (float_col.values[idx] as u64).hash(hasher);
                     }
                 }
             }
             ColumnValues::Bool(bool_col) => {
-                for (hasher, (is_null, value)) in
-                    zip(row_hashers, zip(&self.nulls, &bool_col.values))
-                {
-                    if is_null {
+                for (idx, hasher) in row_hashers {
+                    if self.nulls.at(idx) {
                         0.hash(hasher);
                     } else {
-                        value.hash(hasher);
+                        bool_col.values.at(idx).hash(hasher);
                     }
                 }
             }
         }
+    }
+
+    pub fn hash_at_index<H: Hasher>(&self, state: &mut H, idx: usize) {
+        let slice = [(idx, state)];
+        self.update_col_hashes(slice);
     }
 
     pub fn batch_equals(&self, equalities: &[(usize, usize)], is_equal: &mut Vec<bool>) {

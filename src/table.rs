@@ -622,8 +622,7 @@ impl Table {
         self.columns
     }
 
-    pub fn where_col_is_true(&self, col_name: &str) -> Table {
-        let col = self.get_column(col_name);
+    pub fn where_col_is_true(&self, col: &Column) -> Table {
         let true_indexes = col.get_true_indexes();
 
         return Table {

@@ -101,42 +101,47 @@ mod tests {
         );
     }
 
-    // #[test]
-    // fn basic_where() {
-    //     let table = Table::from_json_str(
-    //         r#"
-    //         {
-    //             "columns": [
-    //                 {
-    //                     "name": "id",
-    //                     "type": "text",
-    //                     "values": ["id0", "id1", "id2", "id3"]
-    //                 },
-    //                 {
-    //                     "name": "condition",
-    //                     "type": "bool",
-    //                     "values": ["false", "true", null, "true"]
-    //                 }
-    //             ]
-    //         }
-    //         "#,
-    //     );
+    #[test]
+    fn basic_where() {
+        let table = Table::from_json_str(
+            r#"
+            {
+                "columns": [
+                    {
+                        "name": "id",
+                        "type": "text",
+                        "values": ["id0", "id1", "id2", "id3"]
+                    },
+                    {
+                        "name": "condition",
+                        "type": "bool",
+                        "values": ["false", "true", null, "true"]
+                    }
+                ]
+            }
+            "#,
+        );
 
-    //     let result = table.query("where condition get id").unwrap();
+        let mut collection = TableCollection::new();
+        collection.add_table("tbl0", table);
 
-    //     assert_eq!(
-    //         result,
-    //         Table::from_json_str(
-    //             r#"{"columns":[
-    //                 {
-    //                     "name": "id",
-    //                     "type": "text",
-    //                     "values": ["id1", "id3"]
-    //                 }
-    //             ]}"#
-    //         )
-    //     );
-    // }
+        let result = collection
+            .query("from tbl0 where condition get id")
+            .unwrap();
+
+        assert_eq!(
+            result,
+            Table::from_json_str(
+                r#"{"columns":[
+                    {
+                        "name": "id",
+                        "type": "text",
+                        "values": ["id1", "id3"]
+                    }
+                ]}"#
+            )
+        );
+    }
 
     // #[test]
     // fn basic_group_by_and_get() {
@@ -164,7 +169,12 @@ mod tests {
     //         "#,
     //     );
 
-    //     let result = table.query("group by id0, id1 get sum(value)").unwrap();
+    //     let mut collection = TableCollection::new();
+    //     collection.add_table("tbl0", table);
+
+    //     let result = collection
+    //         .query("from tbl0 group by id0, id1 get sum(value)")
+    //         .unwrap();
 
     //     assert_eq!(
     //         result,

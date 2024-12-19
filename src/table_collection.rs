@@ -423,6 +423,9 @@ impl<'a> CalcNodeCtx<'a> {
                             ColType::Text => CalcNodeType::TextCol {
                                 len_expr: *len_expr,
                             },
+                            ColType::Bool => CalcNodeType::BoolCol {
+                                len_expr: *len_expr,
+                            },
                             _ => todo!(),
                         },
                         def: CalcNodeDef::FieldSelect {
@@ -431,6 +434,28 @@ impl<'a> CalcNodeCtx<'a> {
                         },
                     }),
                     _ => panic!(),
+                }
+            }
+            AstNodeType::WhereStmt(condition) => {
+                let new_len_idx = self.get_new_len_node_idx();
+                let condition_id = self.register_ast_node(ctx, condition);
+                let parent_node = self.get_calc_node(ctx.parent_id);
+                match parent_node.get_type() {
+                    CalcNodeType::Table {
+                        len_expr,
+                        col_schemas,
+                    } => self.add_calc_node(CalcNode {
+                        name: None,
+                        typ: CalcNodeType::Table {
+                            len_expr: LenExpr::NodeId(new_len_idx),
+                            col_schemas: col_schemas.clone(),
+                        },
+                        def: CalcNodeDef::Filter {
+                            table_id: ctx.parent_id,
+                            condition_id: condition_id,
+                        },
+                    }),
+                    _ => unimplemented!(),
                 }
             }
             _ => todo!("Unknown type {:?}", node),
@@ -566,6 +591,30 @@ impl<'a> CalcNodeCtx<'a> {
                 CalcResult {
                     result: CalcResultType::Col(table.get_column(field_name)),
                     len: table_result.len,
+                }
+            }
+            CalcNodeDef::Filter {
+                table_id,
+                condition_id,
+            } => {
+                let table_result = self.eval_calc_node(*table_id);
+                let table = match table_result.result {
+                    CalcResultType::Table(table) => table,
+                    _ => panic!(),
+                };
+
+                let condition_result = self.eval_calc_node(*condition_id);
+                let condition_result = match condition_result.result {
+                    CalcResultType::Col(col) => col,
+                    _ => panic!(),
+                };
+
+                let result = table.where_col_is_true(&condition_result);
+                let len = CalcResultLen::Len(result.get_n_rows());
+
+                CalcResult {
+                    result: CalcResultType::Table(result),
+                    len,
                 }
             }
             _ => todo!(),

@@ -458,6 +458,38 @@ impl<'a> CalcNodeCtx<'a> {
                     _ => unimplemented!(),
                 }
             }
+            AstNodeType::GroupBy { group_by, get_expr } => {
+                let group_node_ids = group_by
+                    .iter_list()
+                    .map(|node| self.register_ast_node(ctx, node))
+                    .collect::<Vec<_>>();
+
+                let group_content_ids = get_expr
+                    .iter_list()
+                    .map(|node| self.register_ast_node(ctx, node))
+                    .collect::<Vec<_>>();
+
+                let new_len_id = self.get_new_len_node_idx();
+
+                let parent = self.get_calc_node(ctx.parent_id);
+                match parent.get_type() {
+                    CalcNodeType::Table {
+                        len_expr,
+                        col_schemas,
+                    } => self.add_calc_node(CalcNode {
+                        name: None,
+                        typ: CalcNodeType::Table {
+                            len_expr: LenExpr::NodeId(new_len_id),
+                            col_schemas: todo!(),
+                        },
+                        def: CalcNodeDef::GroupBy {
+                            group_by: group_node_ids,
+                            get: group_content_ids,
+                        },
+                    }),
+                    _ => unimplemented!(),
+                }
+            }
             _ => todo!("Unknown type {:?}", node),
         }
     }
@@ -708,4 +740,8 @@ enum CalcNodeDef {
         name: String,
     },
     Selects(Vec<CalcNodeId>),
+    GroupBy {
+        group_by: Vec<CalcNodeId>,
+        get: Vec<CalcNodeId>,
+    },
 }

@@ -143,62 +143,62 @@ mod tests {
         );
     }
 
-    // #[test]
-    // fn basic_group_by_and_get() {
-    //     let table = Table::from_json_str(
-    //         r#"
-    //         {
-    //             "columns": [
-    //                 {
-    //                     "name": "id0",
-    //                     "type": "text",
-    //                     "values": ["a", "a", "a", "b", "b", "c"]
-    //                 },
-    //                 {
-    //                     "name": "id1",
-    //                     "type": "text",
-    //                     "values": ["x", "y", "x", "x", "x", "z"]
-    //                 },
-    //                 {
-    //                     "name": "value",
-    //                     "type": "float64",
-    //                     "values": ["1", "2", "4", "5", "6", "7"]
-    //                 }
-    //             ]
-    //         }
-    //         "#,
-    //     );
+    #[test]
+    fn basic_group_by_and_get() {
+        let table = Table::from_json_str(
+            r#"
+            {
+                "columns": [
+                    {
+                        "name": "id0",
+                        "type": "text",
+                        "values": ["a", "a", "a", "b", "b", "c"]
+                    },
+                    {
+                        "name": "id1",
+                        "type": "text",
+                        "values": ["x", "y", "x", "x", "x", "z"]
+                    },
+                    {
+                        "name": "value",
+                        "type": "float64",
+                        "values": ["1", "2", "4", "5", "6", "7"]
+                    }
+                ]
+            }
+            "#,
+        );
 
-    //     let mut collection = TableCollection::new();
-    //     collection.add_table("tbl0", table);
+        let mut collection = TableCollection::new();
+        collection.add_table("tbl0", table);
 
-    //     let result = collection
-    //         .query("from tbl0 group by id0, id1 get sum(value)")
-    //         .unwrap();
+        let result = collection
+            .query("from tbl0 group by id0, id1 get sum(value)")
+            .unwrap();
 
-    //     assert_eq!(
-    //         result,
-    //         Table::from_json_str(
-    //             r#"{"columns":[
-    //                 {
-    //                     "name": "id0",
-    //                     "type": "text",
-    //                     "values": ["a", "a", "b", "c"]
-    //                 },
-    //                 {
-    //                     "name": "id1",
-    //                     "type": "text",
-    //                     "values": ["x", "y", "x", "z"]
-    //                 },
-    //                 {
-    //                     "name": "value",
-    //                     "type": "float64",
-    //                     "values": ["5", "2", "11", "7"]
-    //                 }
-    //             ]}"#
-    //         )
-    //     );
-    // }
+        assert_eq!(
+            result,
+            Table::from_json_str(
+                r#"{"columns":[
+                    {
+                        "name": "id0",
+                        "type": "text",
+                        "values": ["a", "a", "b", "c"]
+                    },
+                    {
+                        "name": "id1",
+                        "type": "text",
+                        "values": ["x", "y", "x", "z"]
+                    },
+                    {
+                        "name": "value",
+                        "type": "float64",
+                        "values": ["5", "2", "11", "7"]
+                    }
+                ]}"#
+            )
+        );
+    }
 
     // #[test]
     // fn basic_get_expr() {

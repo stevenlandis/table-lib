@@ -17,6 +17,7 @@ struct InnerVal {
 
 #[derive(Debug)]
 pub enum AstNodeType {
+    StmtList(AstNode),
     SelectStmt(AstNode),
     FromStmt(AstNode),
     WhereStmt(AstNode),

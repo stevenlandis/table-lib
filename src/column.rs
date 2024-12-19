@@ -52,6 +52,10 @@ impl Column {
         self.col.get_type_name()
     }
 
+    pub fn get_type(&self) -> ColType {
+        self.col.get_type()
+    }
+
     pub fn to_string_list(&self) -> Vec<Option<String>> {
         self.col.to_string_list()
     }
@@ -129,6 +133,29 @@ impl Column {
             col: Rc::new(self.col.less_than(&other.col)),
         }
     }
+
+    pub fn repeat_scalar_col(&self, len: usize) -> Column {
+        assert_eq!(self.len(), 1);
+
+        Column {
+            col: Rc::new(InnerColumn {
+                nulls: BitVec::from_repeated_value(self.col.nulls.at(0), len),
+                values: match &self.col.values {
+                    ColumnValues::Bool(inner_col) => ColumnValues::Bool(BoolColumnValues {
+                        values: BitVec::from_repeated_value(inner_col.values.at(0), len),
+                    }),
+                    ColumnValues::Float64(inner_col) => {
+                        ColumnValues::Float64(Float64ColumnValues {
+                            values: vec![inner_col.values[0]; len],
+                        })
+                    }
+                    ColumnValues::Text(inner_col) => ColumnValues::Text(
+                        TextColumnValues::from_repeated_value(inner_col.get_str_at_idx(0), len),
+                    ),
+                },
+            }),
+        }
+    }
 }
 
 impl PartialEq for Column {
@@ -153,6 +180,23 @@ struct InnerColumn {
     pub values: ColumnValues,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum ColType {
+    Text,
+    Bool,
+    Float64,
+}
+
+impl ColType {
+    pub fn to_string(&self) -> String {
+        match self {
+            ColType::Text => "text".to_string(),
+            ColType::Float64 => "float64".to_string(),
+            ColType::Bool => "bool".to_string(),
+        }
+    }
+}
+
 impl InnerColumn {
     pub fn len(&self) -> usize {
         return match &self.values {
@@ -162,12 +206,16 @@ impl InnerColumn {
         };
     }
 
-    pub fn get_type_name(&self) -> String {
+    pub fn get_type(&self) -> ColType {
         match &self.values {
-            ColumnValues::Text(_) => "text".to_string(),
-            ColumnValues::Float64(_) => "float64".to_string(),
-            ColumnValues::Bool(_) => "bool".to_string(),
+            ColumnValues::Text(_) => ColType::Text,
+            ColumnValues::Float64(_) => ColType::Float64,
+            ColumnValues::Bool(_) => ColType::Bool,
         }
+    }
+
+    pub fn get_type_name(&self) -> String {
+        self.get_type().to_string()
     }
 
     // pub fn eq_at_indexes(&self, left_idx: usize, right_idx: usize) -> bool {
@@ -600,6 +648,7 @@ impl InnerColumn {
     }
 
     pub fn add(&self, other: &InnerColumn) -> InnerColumn {
+        assert_eq!(self.len(), other.len());
         return match &self.values {
             ColumnValues::Float64(inner_col) => match &other.values {
                 ColumnValues::Float64(other_inner_col) => InnerColumn {
@@ -813,6 +862,21 @@ impl TextColumnValues {
             base_data.extend_from_slice(
                 &self.base_data[record.start_idx..record.start_idx + record.len],
             );
+        }
+
+        TextColumnValues { base_data, records }
+    }
+
+    fn from_repeated_value(value: &str, len: usize) -> TextColumnValues {
+        let mut base_data = Vec::<u8>::with_capacity(len * value.len());
+        let mut records = Vec::<TextColRecord>::with_capacity(len);
+
+        for _ in 0..len {
+            records.push(TextColRecord {
+                start_idx: base_data.len(),
+                len: value.len(),
+            });
+            base_data.extend_from_slice(value.as_bytes());
         }
 
         TextColumnValues { base_data, records }

@@ -410,7 +410,7 @@ impl<'a> Parser<'a> {
 
         match expr {
             None => None,
-            Some(expr) => Some(Ok(expr)),
+            Some(expr) => Some(Ok(AstNode::new(AstNodeType::StmtList(expr)))),
         }
     }
 

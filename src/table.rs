@@ -58,6 +58,7 @@ impl Table {
                 assert_eq!(n_rows, col.column.len());
             }
 
+            assert!(!col_map.contains_key(&col.name));
             col_map.insert(col.name.clone(), columns.len());
             columns.push(col);
 
@@ -613,6 +614,14 @@ impl Table {
         return self.columns[self.col_map[col_name]].column.clone();
     }
 
+    pub fn col_iter<'a>(&'a self) -> std::slice::Iter<'a, TableColumnWrapper> {
+        self.columns.iter()
+    }
+
+    pub fn col_iter_owned(self) -> Vec<TableColumnWrapper> {
+        self.columns
+    }
+
     pub fn where_col_is_true(&self, col_name: &str) -> Table {
         let col = self.get_column(col_name);
         let true_indexes = col.get_true_indexes();
@@ -633,6 +642,7 @@ impl Table {
 
     pub fn with_column(&self, col_name: &str, column: Column) -> Table {
         assert_eq!(self.get_n_rows(), column.len());
+        assert!(!self.col_map.contains_key(col_name));
         let mut new_columns = self.columns.clone();
         let mut new_col_map = self.col_map.clone();
 
@@ -647,6 +657,22 @@ impl Table {
             columns: new_columns,
             n_rows: self.n_rows,
         };
+    }
+
+    pub fn repeat_scalar_table(&self, len: usize) -> Table {
+        assert_eq!(len, self.get_n_rows());
+        Table {
+            col_map: self.col_map.clone(),
+            columns: self
+                .columns
+                .iter()
+                .map(|col| TableColumnWrapper {
+                    name: col.name.clone(),
+                    column: col.column.repeat_scalar_col(len),
+                })
+                .collect(),
+            n_rows: len,
+        }
     }
 }
 

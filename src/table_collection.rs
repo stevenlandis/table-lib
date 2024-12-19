@@ -1,6 +1,9 @@
-use std::collections::{
-    hash_map::{Entry, OccupiedEntry, VacantEntry},
-    HashMap,
+use std::{
+    collections::{
+        hash_map::{Entry, OccupiedEntry, VacantEntry},
+        HashMap,
+    },
+    hash::Hash,
 };
 
 use crate::{
@@ -44,184 +47,21 @@ impl TableCollection {
             &ast,
         );
 
-        match calc_ctx.eval_calc_node(root_id).result {
-            CalcResultType::Col(col) => Ok(Table::from_columns([TableColumnWrapper {
-                name: calc_ctx.get_calc_node(root_id).get_name(),
-                column: col,
-            }])),
-            CalcResultType::Table(table) => Ok(table),
-        }
+        let col_ids = calc_ctx
+            .get_calc_node_cols(root_id)
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
 
-        // for stmt in ast.iter_list() {
-        //     println!("Stmt: {:?}", stmt);
-        //     match stmt.get_type() {
-        //         AstNodeType::SelectStmt(selects) => {
-        //             let node_id = ctx.get_len_node_idx();
-        //             let select_lens = selects
-        //                 .iter_list()
-        //                 .map(|select| get_expr_len(&mut ctx, node_id, select))
-        //                 .collect::<Vec<_>>();
-
-        //             let mut len_expr: Option<LenExpr> = None;
-        //             for this_len in &select_lens {
-        //                 len_expr = match len_expr {
-        //                     None => Some(*this_len),
-        //                     Some(len) => Some(match len {
-        //                         LenExpr::Scalar => match this_len {
-        //                             LenExpr::Scalar => LenExpr::Scalar,
-        //                             LenExpr::NodeId(_) => *this_len,
-        //                         },
-        //                         LenExpr::NodeId(node_id) => match this_len {
-        //                             LenExpr::Scalar => len,
-        //                             LenExpr::NodeId(this_id) => {
-        //                                 assert_eq!(node_id, *this_id);
-        //                                 len
-        //                             }
-        //                         },
-        //                     }),
-        //                 }
-        //             }
-        //             let len_expr = len_expr.unwrap();
-
-        //             let mut columns = selects
-        //                 .iter_list()
-        //                 .map(|select| table.eval_col_expr(select))
-        //                 .collect::<Vec<_>>();
-
-        //             // get final length
-        //             let len: usize = match len_expr {
-        //                 LenExpr::Scalar => 1,
-        //                 LenExpr::NodeId(_) => {
-        //                     let mut len: Option<usize> = None;
-
-        //                     for (len_expr, col) in std::iter::zip(&select_lens, &columns) {
-        //                         match len_expr {
-        //                             LenExpr::Scalar => {}
-        //                             LenExpr::NodeId(_) => match len {
-        //                                 None => {
-        //                                     len = Some(col.len());
-        //                                 }
-        //                                 Some(len) => {
-        //                                     assert_eq!(len, col.len());
-        //                                 }
-        //                             },
-        //                         }
-        //                     }
-        //                     len.unwrap()
-        //                 }
-        //             };
-
-        //             // repeat scalar column to match other column length
-        //             for (len_expr, col) in std::iter::zip(&select_lens, columns.iter_mut()) {
-        //                 match len_expr {
-        //                     LenExpr::Scalar => *col = col.repeat_scalar_col(len),
-        //                     LenExpr::NodeId(_) => {}
-        //                 }
-        //             }
-
-        //             table =
-        //                 Table::from_columns(selects.iter_list().map(|select| TableColumnWrapper {
-        //                     name: table.get_expr_name(select),
-        //                     column: table.eval_col_expr(select),
-        //                 }));
-        //         }
-        //         AstNodeType::WhereStmt(stmt) => {
-        //             let col_name = match stmt.get_type() {
-        //                 AstNodeType::Identifier(col_name) => col_name.clone(),
-        //                 _ => todo!(),
-        //             };
-
-        //             table = table.where_col_is_true(&col_name)
-        //         }
-        //         AstNodeType::GroupBy { group_by, get_expr } => {
-        //             let group_col_name_refs = group_by
-        //                 .iter_list()
-        //                 .map(|col| match col.get_type() {
-        //                     AstNodeType::Identifier(name) => name.as_str(),
-        //                     _ => todo!("Add support for {:?}", col.get_type()),
-        //                 })
-        //                 .collect::<Vec<_>>();
-
-        //             let aggs = get_expr
-        //                 .iter_list()
-        //                 .map(|get_expr| match get_expr.get_type() {
-        //                     AstNodeType::FcnCall {
-        //                         name: fcn_name,
-        //                         args,
-        //                     } => match fcn_name.get_type() {
-        //                         AstNodeType::Identifier(fcn_name) => match fcn_name.as_str() {
-        //                             "sum" => {
-        //                                 let col_name = match args {
-        //                                     Some(args) => {
-        //                                         match args.iter_list().nth(0).unwrap().get_type() {
-        //                                             AstNodeType::Identifier(col_name) => {
-        //                                                 col_name.as_str()
-        //                                             }
-        //                                             _ => todo!(),
-        //                                         }
-        //                                     }
-        //                                     _ => todo!(),
-        //                                 };
-
-        //                                 Aggregation {
-        //                                     in_col_name: col_name,
-        //                                     out_col_name: col_name,
-        //                                     agg_type: AggregationType::Sum,
-        //                                 }
-        //                             }
-        //                             "first" => {
-        //                                 let col_name = match args {
-        //                                     Some(args) => {
-        //                                         match args.iter_list().nth(0).unwrap().get_type() {
-        //                                             AstNodeType::Identifier(col_name) => {
-        //                                                 col_name.as_str()
-        //                                             }
-        //                                             _ => todo!(),
-        //                                         }
-        //                                     }
-        //                                     _ => todo!(),
-        //                                 };
-
-        //                                 Aggregation {
-        //                                     in_col_name: col_name,
-        //                                     out_col_name: col_name,
-        //                                     agg_type: AggregationType::First,
-        //                                 }
-        //                             }
-        //                             _ => todo!(),
-        //                         },
-        //                         _ => todo!(),
-        //                     },
-        //                     _ => todo!(),
-        //                 })
-        //                 .collect::<Vec<_>>();
-
-        //             table =
-        //                 table.group_and_aggregate(group_col_name_refs.as_slice(), aggs.as_slice())
-        //         }
-        //         _ => todo!(),
-        //     }
-        // }
-
-        // Ok(table)
-    }
-
-    fn get_expr_name(&self, expr: &AstNode) -> String {
-        match expr.get_type() {
-            AstNodeType::Identifier(col_name) => col_name.clone(),
-            AstNodeType::Add(left, right) => format!(
-                "({} + {})",
-                self.get_expr_name(left),
-                self.get_expr_name(right)
-            ),
-            AstNodeType::Integer(val) => format!("{}", val),
-            AstNodeType::Float64(val) => format!("{}", val),
-            AstNodeType::Alias { expr: _, alias } => match alias.get_type() {
-                AstNodeType::Identifier(alias) => alias.clone(),
-                _ => todo!(),
+        let table = Table::from_columns(col_ids.iter().cloned().map(|col_id| TableColumnWrapper {
+            name: calc_ctx.get_calc_node_name(col_id).to_string(),
+            column: match &calc_ctx.eval_calc_node(col_id).result {
+                CalcResultType::Col(col) => col.clone(),
+                _ => panic!(),
             },
-            _ => todo!(),
-        }
+        }));
+
+        Ok(table)
     }
 }
 
@@ -230,6 +70,7 @@ struct CalcResult {
     len: CalcResultLen,
 }
 
+#[derive(Clone)]
 enum CalcResultLen {
     Scalar,
     Len(usize),
@@ -240,64 +81,22 @@ enum CalcResultType {
     Table(Table),
 }
 
-struct ExprCtx {
-    len_node_idx: usize,
-}
-
-impl ExprCtx {
-    fn new() -> Self {
-        ExprCtx { len_node_idx: 0 }
-    }
-
-    fn get_len_node_idx(&mut self) -> usize {
-        let result = self.len_node_idx;
-        self.len_node_idx += 1;
-        result
-    }
-}
-
 #[derive(Clone, Copy, Debug)]
 enum LenExpr {
     Scalar,
     NodeId(usize),
 }
 
-fn get_expr_len(ctx: &mut ExprCtx, in_node_id: usize, expr: &AstNode) -> LenExpr {
-    match expr.get_type() {
-        AstNodeType::Identifier(_) => LenExpr::NodeId(in_node_id),
-        AstNodeType::Float64(_) => LenExpr::Scalar,
-        AstNodeType::Integer(_) => LenExpr::Scalar,
-        AstNodeType::Add(left, right) => {
-            let left_len = get_expr_len(ctx, in_node_id, left);
-            let right_len = get_expr_len(ctx, in_node_id, right);
-
-            match left_len {
-                LenExpr::Scalar => match right_len {
-                    LenExpr::Scalar => LenExpr::Scalar,
-                    LenExpr::NodeId(_) => right_len,
-                },
-                LenExpr::NodeId(left_id) => match right_len {
-                    LenExpr::Scalar => left_len,
-                    LenExpr::NodeId(right_id) => {
-                        assert_eq!(left_id, right_id);
-                        LenExpr::NodeId(left_id)
-                    }
-                },
-            }
-        }
-        AstNodeType::Alias {
-            expr: node,
-            alias: _,
-        } => get_expr_len(ctx, in_node_id, node),
-        _ => todo!(),
-    }
-}
-
 struct CalcNodeCtx<'a> {
     table_collection: &'a TableCollection,
-    calc_nodes: Vec<CalcNode>,
+    calc_nodes: Vec<CalcNode2>,
     len_node_idx: usize,
     registered_tables: HashMap<String, CalcNodeId>,
+    len_expr_cache: HashMap<CalcNodeId, LenExpr>,
+    name_cache: HashMap<CalcNodeId, String>,
+    node_cols_cache: HashMap<CalcNodeId, Vec<CalcNodeId>>,
+    table_col_node_cache: HashMap<(String, String), CalcNodeId>,
+    result_cache: HashMap<CalcNodeId, CalcResult>,
 }
 
 #[derive(Clone)]
@@ -312,6 +111,11 @@ impl<'a> CalcNodeCtx<'a> {
             calc_nodes: Vec::new(),
             len_node_idx: 0,
             registered_tables: HashMap::new(),
+            len_expr_cache: HashMap::new(),
+            name_cache: HashMap::new(),
+            node_cols_cache: HashMap::new(),
+            table_col_node_cache: HashMap::new(),
+            result_cache: HashMap::new(),
         }
     }
 
@@ -321,14 +125,139 @@ impl<'a> CalcNodeCtx<'a> {
         result
     }
 
-    fn add_calc_node(&mut self, node: CalcNode) -> CalcNodeId {
+    fn add_calc_node(&mut self, node: CalcNode2) -> CalcNodeId {
         let idx = self.calc_nodes.len();
         self.calc_nodes.push(node);
         idx
     }
 
-    fn get_calc_node(&self, id: CalcNodeId) -> &CalcNode {
+    fn get_calc_node(&self, id: CalcNodeId) -> &CalcNode2 {
         &self.calc_nodes[id]
+    }
+
+    fn get_calc_node_len(&mut self, id: CalcNodeId) -> &LenExpr {
+        match self.len_expr_cache.get(&id) {
+            None => {
+                let len_expr = match self.get_calc_node(id) {
+                    CalcNode2::Table { name: _ } => LenExpr::NodeId(self.get_new_len_node_idx()),
+                    CalcNode2::FieldSelect {
+                        table_id,
+                        col_name: _,
+                    } => *self.get_calc_node_len(*table_id),
+                    _ => todo!(),
+                };
+                self.len_expr_cache.insert(id, len_expr);
+            }
+            _ => {}
+        };
+
+        &self.len_expr_cache[&id]
+    }
+
+    fn get_calc_node_name(&mut self, id: CalcNodeId) -> &str {
+        match self.name_cache.get(&id) {
+            None => {
+                let name = match self.get_calc_node(id) {
+                    CalcNode2::FieldSelect {
+                        table_id: _,
+                        col_name: field_name,
+                    } => field_name.clone(),
+                    _ => todo!(),
+                };
+                self.name_cache.insert(id, name);
+            }
+            _ => {}
+        }
+
+        self.name_cache[&id].as_str()
+    }
+
+    fn get_table_col_node_id(&mut self, table_id: CalcNodeId, col_name: &str) -> CalcNodeId {
+        let table_name = match self.get_calc_node(table_id) {
+            CalcNode2::Table { name } => name.clone(),
+            _ => panic!(),
+        };
+
+        let key = (table_name, col_name.to_string());
+        match self.table_col_node_cache.get(&key) {
+            None => {
+                let calc_node = CalcNode2::FieldSelect {
+                    table_id,
+                    col_name: col_name.to_string(),
+                };
+                let new_id = self.add_calc_node(calc_node);
+                self.table_col_node_cache.insert(key.clone(), new_id);
+            }
+            _ => {}
+        };
+
+        self.table_col_node_cache[&key]
+    }
+
+    fn get_calc_node_cols(&mut self, id: CalcNodeId) -> &[CalcNodeId] {
+        match self.node_cols_cache.get(&id) {
+            None => {
+                let mut cols = Vec::<CalcNodeId>::new();
+                match self.get_calc_node(id) {
+                    CalcNode2::Table { name } => {
+                        let table = self.table_collection.get_table(name);
+                        for col in table.col_iter() {
+                            cols.push(self.get_table_col_node_id(id, &col.name));
+                        }
+                    }
+                    CalcNode2::FieldSelect {
+                        table_id: _,
+                        col_name: _,
+                    } => {
+                        cols.push(id);
+                    }
+                    CalcNode2::Selects { cols: select_cols } => {
+                        cols.extend(select_cols);
+                    }
+                    CalcNode2::FcnCall { name: _, args: _ } => {
+                        cols.push(id);
+                    }
+                    _ => todo!("{:?}", self.get_calc_node(id)),
+                };
+
+                self.node_cols_cache.insert(id, cols);
+            }
+            _ => {}
+        };
+
+        self.node_cols_cache[&id].as_slice()
+    }
+
+    // fn get_calc_node_col(&mut self, id: CalcNodeId, col_name: &str) -> CalcNodeId {
+    //     match self.col_name_cache.get(&id) {
+    //         None => {
+    //             let mut col_map = HashMap::<String, CalcNodeId>::new();
+    //             match self.get_calc_node(id) {
+    //                 CalcNode2::Table { name } => {
+    //                     let table = self.table_collection.get_table(name);
+    //                     for col in table.col_iter() {
+    //                         col_map
+    //                             .insert(col.name.clone(), self.get_table_col_node_id(id, col_name));
+    //                     }
+    //                 }
+    //                 _ => todo!(),
+    //             };
+    //             self.col_name_cache.insert(id, col_map);
+    //         }
+    //         _ => {}
+    //     };
+
+    //     self.col_name_cache[&id][col_name]
+    // }
+
+    fn get_ast_col_ids(&mut self, ctx: &RegisterAstNodeCtx, node: &AstNode) -> Vec<CalcNodeId> {
+        let mut col_node_ids = Vec::<CalcNodeId>::new();
+        for select in node.iter_list() {
+            let select_id = self.register_ast_node(ctx, select);
+            col_node_ids.extend(self.get_calc_node_cols(select_id));
+        }
+
+        col_node_ids
     }
 
     fn register_ast_node(&mut self, ctx: &RegisterAstNodeCtx, node: &AstNode) -> CalcNodeId {
@@ -347,401 +276,157 @@ impl<'a> CalcNodeCtx<'a> {
                 _ => todo!(),
             },
             AstNodeType::SelectStmt(selects) => {
-                let mut len_expr: Option<LenExpr> = None;
+                let select_node_ids = self.get_ast_col_ids(ctx, selects);
 
-                // get len_expr
-                let mut select_node_ids = Vec::<CalcNodeId>::new();
-                for select in selects.iter_list() {
-                    let select_id = self.register_ast_node(ctx, select);
-                    let select_node = self.get_calc_node(select_id);
-                    let this_len = select_node.get_len_expr();
-
-                    match len_expr {
-                        None => len_expr = Some(select_node.get_len_expr()),
-                        Some(len) => match len {
-                            LenExpr::Scalar => match this_len {
-                                LenExpr::Scalar => {}
-                                LenExpr::NodeId(_) => {
-                                    len_expr = Some(this_len);
-                                }
-                            },
-                            LenExpr::NodeId(len_id) => match select_node.get_len_expr() {
-                                LenExpr::Scalar => {}
-                                LenExpr::NodeId(this_len_id) => {
-                                    assert_eq!(len_id, this_len_id);
-                                }
-                            },
-                        },
-                    }
-
-                    select_node_ids.push(select_id);
-                }
-
-                let len_expr = len_expr.unwrap();
-
-                let mut col_schemas = Vec::<ColSchema>::new();
-                for select_id in &select_node_ids {
-                    let select_node = self.get_calc_node(*select_id);
-                    match select_node.get_type() {
-                        CalcNodeType::Table {
-                            len_expr: _,
-                            col_schemas: this_col_schemas,
-                        } => {
-                            col_schemas.extend(this_col_schemas.iter().cloned());
-                        }
-                        CalcNodeType::TextCol { len_expr: _ } => col_schemas.push(ColSchema {
-                            name: select_node.get_name(),
-                            typ: ColType::Text,
-                        }),
-                        _ => todo!(),
-                    }
-                }
-
-                self.add_calc_node(CalcNode {
-                    name: None,
-                    typ: CalcNodeType::Table {
-                        len_expr,
-                        col_schemas,
-                    },
-                    def: CalcNodeDef::Selects(select_node_ids),
+                self.add_calc_node(CalcNode2::Selects {
+                    cols: select_node_ids,
                 })
             }
-            AstNodeType::Identifier(col_name) => {
-                let parent_node = self.get_calc_node(ctx.parent_id);
-                match parent_node.get_type() {
-                    CalcNodeType::Table {
-                        len_expr,
-                        col_schemas,
-                    } => self.add_calc_node(CalcNode {
-                        name: None,
-                        typ: match col_schemas
-                            .iter()
-                            .find(|schema| schema.name == *col_name)
-                            .unwrap()
-                            .typ
-                        {
-                            ColType::Text => CalcNodeType::TextCol {
-                                len_expr: *len_expr,
-                            },
-                            ColType::Bool => CalcNodeType::BoolCol {
-                                len_expr: *len_expr,
-                            },
-                            _ => todo!(),
-                        },
-                        def: CalcNodeDef::FieldSelect {
-                            table_id: ctx.parent_id,
-                            field_name: col_name.clone(),
-                        },
-                    }),
-                    _ => panic!(),
-                }
-            }
+            AstNodeType::Identifier(col_name) => self.add_calc_node(CalcNode2::FieldSelect {
+                table_id: ctx.parent_id,
+                col_name: col_name.clone(),
+            }),
             AstNodeType::WhereStmt(condition) => {
-                let new_len_idx = self.get_new_len_node_idx();
                 let condition_id = self.register_ast_node(ctx, condition);
-                let parent_node = self.get_calc_node(ctx.parent_id);
-                match parent_node.get_type() {
-                    CalcNodeType::Table {
-                        len_expr,
-                        col_schemas,
-                    } => self.add_calc_node(CalcNode {
-                        name: None,
-                        typ: CalcNodeType::Table {
-                            len_expr: LenExpr::NodeId(new_len_idx),
-                            col_schemas: col_schemas.clone(),
-                        },
-                        def: CalcNodeDef::Filter {
-                            table_id: ctx.parent_id,
-                            condition_id: condition_id,
-                        },
-                    }),
-                    _ => unimplemented!(),
-                }
+                self.add_calc_node(CalcNode2::Where {
+                    table_id: ctx.parent_id,
+                    where_col_id: condition_id,
+                })
             }
             AstNodeType::GroupBy { group_by, get_expr } => {
-                let group_node_ids = group_by
-                    .iter_list()
-                    .map(|node| self.register_ast_node(ctx, node))
-                    .collect::<Vec<_>>();
+                let group_by_cols = self.get_ast_col_ids(ctx, group_by);
+                let get_cols = self.get_ast_col_ids(ctx, get_expr);
 
-                let group_content_ids = get_expr
-                    .iter_list()
-                    .map(|node| self.register_ast_node(ctx, node))
-                    .collect::<Vec<_>>();
+                self.add_calc_node(CalcNode2::GroupBy {
+                    group_by_cols,
+                    get_cols,
+                })
+            }
+            AstNodeType::FcnCall { name, args } => {
+                let fcn_name = match name.get_type() {
+                    AstNodeType::Identifier(fcn_name) => fcn_name.as_str(),
+                    _ => todo!(),
+                };
 
-                let new_len_id = self.get_new_len_node_idx();
-
-                let parent = self.get_calc_node(ctx.parent_id);
-                match parent.get_type() {
-                    CalcNodeType::Table {
-                        len_expr,
-                        col_schemas,
-                    } => self.add_calc_node(CalcNode {
-                        name: None,
-                        typ: CalcNodeType::Table {
-                            len_expr: LenExpr::NodeId(new_len_id),
-                            col_schemas: todo!(),
-                        },
-                        def: CalcNodeDef::GroupBy {
-                            group_by: group_node_ids,
-                            get: group_content_ids,
-                        },
-                    }),
-                    _ => unimplemented!(),
+                let mut arg_ids = Vec::<CalcNodeId>::new();
+                match args {
+                    None => {}
+                    Some(args) => {
+                        for arg_node in args.iter_list() {
+                            arg_ids.push(self.register_ast_node(ctx, arg_node));
+                        }
+                    }
                 }
+
+                self.add_calc_node(CalcNode2::FcnCall {
+                    name: fcn_name.to_string(),
+                    args: arg_ids,
+                })
             }
             _ => todo!("Unknown type {:?}", node),
         }
     }
 
     fn get_table_calc_node(&mut self, name: &str) -> CalcNodeId {
-        if !self.registered_tables.contains_key(name) {
-            let table = self.table_collection.get_table(name);
-            let node_id = self.register_table(name, table);
-            self.registered_tables.insert(name.to_string(), node_id);
+        match self.registered_tables.get(name) {
+            None => {
+                let node_id = self.add_calc_node(CalcNode2::Table {
+                    name: name.to_string(),
+                });
+                self.registered_tables.insert(name.to_string(), node_id);
+            }
+            _ => {}
         }
 
         self.registered_tables[name]
     }
 
-    fn register_table(&mut self, name: &str, table: &Table) -> CalcNodeId {
-        let node = CalcNode {
-            name: None,
-            typ: CalcNodeType::Table {
-                len_expr: LenExpr::NodeId(self.get_new_len_node_idx()),
-                col_schemas: table
-                    .col_iter()
-                    .map(|col| ColSchema {
-                        name: col.name.clone(),
-                        typ: col.column.get_type(),
-                    })
-                    .collect::<Vec<_>>(),
-            },
-            def: CalcNodeDef::Table {
-                name: name.to_string(),
-            },
-        };
-        self.add_calc_node(node)
-    }
+    fn eval_calc_node(&mut self, calc_node_id: CalcNodeId) -> &CalcResult {
+        match self.result_cache.get(&calc_node_id) {
+            None => {
+                let result = match self.get_calc_node(calc_node_id) {
+                    CalcNode2::Table { name } => {
+                        let table = self.table_collection.get_table(name).clone();
+                        let len = CalcResultLen::Len(table.get_n_rows());
 
-    fn eval_calc_node(&self, calc_node_id: CalcNodeId) -> CalcResult {
-        let node = self.get_calc_node(calc_node_id);
-        match node.get_def() {
-            CalcNodeDef::Table { name } => {
-                let table = self.table_collection.get_table(name).clone();
-                CalcResult {
-                    len: CalcResultLen::Len(table.get_n_rows()),
-                    result: CalcResultType::Table(table),
-                }
-            }
-            CalcNodeDef::Selects(selects) => {
-                let mut results = selects
-                    .iter()
-                    .map(|select_id| self.eval_calc_node(*select_id))
-                    .collect::<Vec<_>>();
-                assert!(results.len() > 0);
-
-                let mut len: Option<usize> = None;
-                for (result, select_id) in std::iter::zip(&results, selects) {
-                    match self.get_calc_node(*select_id).get_len_expr() {
-                        LenExpr::Scalar => match result.len {
-                            CalcResultLen::Scalar => {}
-                            CalcResultLen::Len(_) => panic!(),
-                        },
-                        LenExpr::NodeId(_) => match result.len {
-                            CalcResultLen::Scalar => panic!(),
-                            CalcResultLen::Len(this_len) => match len {
-                                None => {
-                                    len = Some(this_len);
-                                }
-                                Some(len) => {
-                                    assert_eq!(this_len, len);
-                                }
-                            },
-                        },
-                    }
-                }
-
-                let len = match len {
-                    None => CalcResultLen::Scalar,
-                    Some(len) => CalcResultLen::Len(len),
-                };
-
-                // if fixed size, resize scalars to appropriate length
-                match len {
-                    CalcResultLen::Scalar => {}
-                    CalcResultLen::Len(len) => {
-                        for result in &mut results {
-                            match &result.len {
-                                CalcResultLen::Scalar => {
-                                    *result = CalcResult {
-                                        result: match &result.result {
-                                            CalcResultType::Col(col) => {
-                                                CalcResultType::Col(col.repeat_scalar_col(len))
-                                            }
-                                            CalcResultType::Table(table) => CalcResultType::Table(
-                                                table.repeat_scalar_table(len),
-                                            ),
-                                        },
-                                        len: CalcResultLen::Len(len),
-                                    };
-                                }
-                                CalcResultLen::Len(_) => {}
-                            }
+                        CalcResult {
+                            result: CalcResultType::Table(table),
+                            len,
                         }
                     }
-                }
+                    CalcNode2::FieldSelect { table_id, col_name } => {
+                        let table_id = *table_id;
+                        let col_name = col_name.clone();
+                        let result = self.eval_calc_node(table_id);
+                        let table = match &result.result {
+                            CalcResultType::Table(table) => table,
+                            _ => panic!(),
+                        };
 
-                // combine all results into a single table
-                let mut columns = Vec::<TableColumnWrapper>::new();
-                for (result, select_id) in std::iter::zip(results, selects) {
-                    match result.result {
-                        CalcResultType::Col(col) => columns.push(TableColumnWrapper {
-                            column: col,
-                            name: self.get_calc_node(*select_id).get_name(),
-                        }),
-                        CalcResultType::Table(table) => {
-                            columns.extend(table.col_iter_owned());
+                        CalcResult {
+                            result: CalcResultType::Col(table.get_column(&col_name)),
+                            len: result.len.clone(),
                         }
                     }
-                }
-
-                CalcResult {
-                    result: CalcResultType::Table(Table::from_columns(columns)),
-                    len,
-                }
-            }
-            CalcNodeDef::FieldSelect {
-                table_id,
-                field_name,
-            } => {
-                let table_result = self.eval_calc_node(*table_id);
-                let table = match table_result.result {
-                    CalcResultType::Table(table) => table,
-                    _ => panic!(),
-                };
-                CalcResult {
-                    result: CalcResultType::Col(table.get_column(field_name)),
-                    len: table_result.len,
-                }
-            }
-            CalcNodeDef::Filter {
-                table_id,
-                condition_id,
-            } => {
-                let table_result = self.eval_calc_node(*table_id);
-                let table = match table_result.result {
-                    CalcResultType::Table(table) => table,
-                    _ => panic!(),
-                };
-
-                let condition_result = self.eval_calc_node(*condition_id);
-                let condition_result = match condition_result.result {
-                    CalcResultType::Col(col) => col,
-                    _ => panic!(),
-                };
-
-                let result = table.where_col_is_true(&condition_result);
-                let len = CalcResultLen::Len(result.get_n_rows());
-
-                CalcResult {
-                    result: CalcResultType::Table(result),
-                    len,
-                }
-            }
-            _ => todo!(),
-        }
-    }
-}
-
-struct CalcNode {
-    name: Option<String>,
-    typ: CalcNodeType,
-    def: CalcNodeDef,
-}
-
-impl CalcNode {
-    fn get_def(&self) -> &CalcNodeDef {
-        &self.def
-    }
-
-    fn get_type(&self) -> &CalcNodeType {
-        &self.typ
-    }
-
-    fn get_len_expr(&self) -> LenExpr {
-        match self.get_type() {
-            CalcNodeType::TextCol { len_expr } => *len_expr,
-            CalcNodeType::BoolCol { len_expr } => *len_expr,
-            CalcNodeType::Float64Col { len_expr } => *len_expr,
-            CalcNodeType::Table {
-                len_expr,
-                col_schemas: _,
-            } => *len_expr,
-        }
-    }
-
-    fn get_name(&self) -> String {
-        match &self.name {
-            Some(name) => name.clone(),
-            None => match self.get_type() {
-                CalcNodeType::Table {
-                    len_expr: _,
-                    col_schemas: _,
-                } => unreachable!(),
-                CalcNodeType::TextCol { len_expr } => match self.get_def() {
-                    CalcNodeDef::FieldSelect {
+                    CalcNode2::Where {
                         table_id,
-                        field_name,
-                    } => field_name.clone(),
-                    _ => todo!(),
-                },
-                _ => todo!("get name from {:?}", self.get_type()),
-            },
+                        where_col_id,
+                    } => {
+                        let table_id = *table_id;
+                        let where_col_id = *where_col_id;
+
+                        let condition_result = match &self.eval_calc_node(where_col_id).result {
+                            CalcResultType::Col(col) => col.clone(),
+                            _ => panic!(),
+                        };
+                        let table_result = match &self.eval_calc_node(table_id).result {
+                            CalcResultType::Table(table) => table,
+                            _ => panic!(),
+                        };
+
+                        let result = table_result.where_col_is_true(&condition_result);
+                        let len = result.get_n_rows();
+
+                        CalcResult {
+                            result: CalcResultType::Table(result),
+                            len: CalcResultLen::Len(len),
+                        }
+                    }
+                    _ => todo!("{:?}", self.get_calc_node(calc_node_id)),
+                };
+                self.result_cache.insert(calc_node_id, result);
+            }
+            _ => {}
         }
+
+        &self.result_cache[&calc_node_id]
     }
 }
 
-type CalcNodeId = usize;
-
-#[derive(Clone, Debug)]
-struct ColSchema {
-    name: String,
-    typ: ColType,
-}
-
-#[derive(Clone, Debug)]
-enum CalcNodeType {
-    TextCol {
-        len_expr: LenExpr,
-    },
-    BoolCol {
-        len_expr: LenExpr,
-    },
-    Float64Col {
-        len_expr: LenExpr,
-    },
-    Table {
-        len_expr: LenExpr,
-        col_schemas: Vec<ColSchema>,
-    },
-}
-
-enum CalcNodeDef {
+#[derive(Debug)]
+enum CalcNode2 {
     FieldSelect {
         table_id: CalcNodeId,
-        field_name: String,
+        col_name: String,
     },
-    Filter {
+    Where {
         table_id: CalcNodeId,
-        condition_id: CalcNodeId,
+        where_col_id: CalcNodeId,
     },
     Table {
         name: String,
     },
-    Selects(Vec<CalcNodeId>),
+    Selects {
+        cols: Vec<CalcNodeId>,
+    },
     GroupBy {
-        group_by: Vec<CalcNodeId>,
-        get: Vec<CalcNodeId>,
+        group_by_cols: Vec<CalcNodeId>,
+        get_cols: Vec<CalcNodeId>,
+    },
+    FcnCall {
+        name: String,
+        args: Vec<CalcNodeId>,
     },
 }
+
+type CalcNodeId = usize;

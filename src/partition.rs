@@ -14,9 +14,11 @@ pub struct Partition {
 
 impl core::fmt::Debug for Partition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("<Partition ");
-        self.rc.len().fmt(f);
-        f.write_str(">")
+        f.write_str("<Partition ")?;
+        self.rc.len().fmt(f)?;
+        f.write_str(">")?;
+
+        Ok(())
     }
 }
 
@@ -81,6 +83,38 @@ impl InnerPartition {
         InnerPartition {
             spans: new_spans,
             row_indexes: new_row_indexes,
+        }
+    }
+}
+
+pub struct PartitionIter<'a> {
+    partition: &'a InnerPartition,
+    idx: usize,
+}
+
+impl<'a> IntoIterator for &'a Partition {
+    type Item = &'a [usize];
+
+    type IntoIter = PartitionIter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        PartitionIter {
+            partition: &self.rc,
+            idx: 0,
+        }
+    }
+}
+
+impl<'a> Iterator for PartitionIter<'a> {
+    type Item = &'a [usize];
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.idx > self.partition.spans.len() {
+            None
+        } else {
+            let span = &self.partition.spans[self.idx];
+            let result = &self.partition.row_indexes[span.start..span.start + span.len];
+            Some(result)
         }
     }
 }

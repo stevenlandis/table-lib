@@ -47,6 +47,12 @@ impl BitVec {
         self.length += 1;
     }
 
+    pub fn set(&mut self, idx: usize, value: bool) {
+        let bucket = idx >> 3;
+        let offset = self.length & 0b111;
+        self.values[bucket] &= if value { 1 << offset } else { 0 };
+    }
+
     pub fn at(&self, idx: usize) -> bool {
         (self.values[idx >> 3] & (1 << (idx & 0b111))) > 0
     }
@@ -153,5 +159,22 @@ mod test_bit_vec {
             vec.iter().collect::<Vec<_>>(),
             vec![true, false, true, false, false, true, true, true, true, false]
         );
+    }
+
+    fn test_set() {
+        let mut vec = BitVec::new();
+        vec.push(false);
+        vec.push(true);
+
+        assert_eq!(vec.iter().collect::<Vec<_>>(), vec![false, true]);
+
+        vec.set(1, false);
+        assert_eq!(vec.iter().collect::<Vec<_>>(), vec![false, false]);
+
+        vec.set(0, true);
+        assert_eq!(vec.iter().collect::<Vec<_>>(), vec![true, false]);
+
+        vec.set(0, true);
+        assert_eq!(vec.iter().collect::<Vec<_>>(), vec![true, false]);
     }
 }

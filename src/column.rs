@@ -156,6 +156,10 @@ impl Column {
             }),
         }
     }
+
+    pub fn sum(&self) -> f64 {
+        self.col.sum()
+    }
 }
 
 impl PartialEq for Column {
@@ -745,6 +749,15 @@ impl InnerColumn {
                 }
                 _ => todo!(),
             },
+            _ => todo!(),
+        }
+    }
+
+    fn sum(&self) -> f64 {
+        match &self.values {
+            ColumnValues::Float64(col) => std::iter::zip(col.values.iter(), self.nulls.iter())
+                .filter_map(|(val, is_null)| if is_null { None } else { Some(val) })
+                .fold(0.0, |acc, elem| acc + elem),
             _ => todo!(),
         }
     }

@@ -49,8 +49,9 @@ impl BitVec {
 
     pub fn set(&mut self, idx: usize, value: bool) {
         let bucket = idx >> 3;
-        let offset = self.length & 0b111;
-        self.values[bucket] &= if value { 1 << offset } else { 0 };
+        let offset = idx & 0b111;
+        let mask = (0b11111111 as u8) ^ (1 << offset);
+        self.values[bucket] = (self.values[bucket] & mask) | (if value { 1 << offset } else { 0 });
     }
 
     pub fn at(&self, idx: usize) -> bool {
@@ -161,6 +162,7 @@ mod test_bit_vec {
         );
     }
 
+    #[test]
     fn test_set() {
         let mut vec = BitVec::new();
         vec.push(false);

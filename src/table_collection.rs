@@ -1,3 +1,4 @@
+use core::panic;
 use std::{
     collections::{
         hash_map::{Entry, OccupiedEntry, VacantEntry},
@@ -9,6 +10,7 @@ use std::{
 use crate::{
     ast_node::{AstNode, AstNodeType},
     parser::{ParseError, Parser},
+    partition::{self, Partition},
     Aggregation, AggregationType, ColType, Column, Table, TableColumnWrapper,
 };
 
@@ -53,16 +55,31 @@ impl TableCollection {
             .cloned()
             .collect::<Vec<_>>();
 
-        let table = Table::from_columns(col_ids.iter().cloned().map(|col_id| TableColumnWrapper {
-            name: calc_ctx.get_calc_node_name(col_id).to_string(),
-            column: match &calc_ctx.eval_calc_node(col_id).result {
-                CalcResultType::Col(col) => col.clone(),
-                _ => panic!(),
-            },
-        }));
+        let col_names = col_ids
+            .iter()
+            .cloned()
+            .map(|id| calc_ctx.get_calc_node_name2(id, 0).to_string())
+            .collect::<Vec<_>>();
+
+        let result = calc_ctx.eval_calc_node(root_id);
+
+        let table = Table::from_columns(
+            Partition::new_single_partition(result.cols[0].len()),
+            std::iter::zip(col_names, &result.cols).map(|(name, column)| TableColumnWrapper {
+                name,
+                column: column.clone(),
+            }),
+        );
 
         Ok(table)
     }
+}
+
+#[derive(Clone)]
+struct CalcResult2 {
+    cols: Vec<Column>,
+    partition: Partition,
+    is_scalar: bool,
 }
 
 struct CalcResult {
@@ -89,14 +106,15 @@ enum LenExpr {
 
 struct CalcNodeCtx<'a> {
     table_collection: &'a TableCollection,
-    calc_nodes: Vec<CalcNode2>,
+    calc_nodes: Vec<CalcNode>,
     len_node_idx: usize,
     registered_tables: HashMap<String, CalcNodeId>,
     len_expr_cache: HashMap<CalcNodeId, LenExpr>,
     name_cache: HashMap<CalcNodeId, String>,
+    name_cache2: HashMap<(CalcNodeId, usize), String>,
     node_cols_cache: HashMap<CalcNodeId, Vec<CalcNodeId>>,
     table_col_node_cache: HashMap<(String, String), CalcNodeId>,
-    result_cache: HashMap<CalcNodeId, CalcResult>,
+    result_cache: HashMap<CalcNodeId, CalcResult2>,
 }
 
 #[derive(Clone)]
@@ -113,6 +131,7 @@ impl<'a> CalcNodeCtx<'a> {
             registered_tables: HashMap::new(),
             len_expr_cache: HashMap::new(),
             name_cache: HashMap::new(),
+            name_cache2: HashMap::new(),
             node_cols_cache: HashMap::new(),
             table_col_node_cache: HashMap::new(),
             result_cache: HashMap::new(),
@@ -125,13 +144,14 @@ impl<'a> CalcNodeCtx<'a> {
         result
     }
 
-    fn add_calc_node(&mut self, node: CalcNode2) -> CalcNodeId {
+    fn add_calc_node(&mut self, node: CalcNode) -> CalcNodeId {
         let idx = self.calc_nodes.len();
+        println!("Add calc node idx={:?} is {:?}", idx, node);
         self.calc_nodes.push(node);
         idx
     }
 
-    fn get_calc_node(&self, id: CalcNodeId) -> &CalcNode2 {
+    fn get_calc_node(&self, id: CalcNodeId) -> &CalcNode {
         &self.calc_nodes[id]
     }
 
@@ -139,10 +159,10 @@ impl<'a> CalcNodeCtx<'a> {
         match self.len_expr_cache.get(&id) {
             None => {
                 let len_expr = match self.get_calc_node(id) {
-                    CalcNode2::Table { name: _ } => LenExpr::NodeId(self.get_new_len_node_idx()),
-                    CalcNode2::FieldSelect {
+                    CalcNode::Table { name: _ } => LenExpr::NodeId(self.get_new_len_node_idx()),
+                    CalcNode::FieldSelect {
                         table_id,
-                        col_name: _,
+                        col_idx: _,
                     } => *self.get_calc_node_len(*table_id),
                     _ => todo!(),
                 };
@@ -154,38 +174,119 @@ impl<'a> CalcNodeCtx<'a> {
         &self.len_expr_cache[&id]
     }
 
-    fn get_calc_node_name(&mut self, id: CalcNodeId) -> &str {
-        match self.name_cache.get(&id) {
+    fn get_calc_node_name2(&mut self, id: CalcNodeId, col_idx: usize) -> &str {
+        let key = (id, col_idx);
+        match self.name_cache2.get(&key) {
             None => {
                 let name = match self.get_calc_node(id) {
-                    CalcNode2::FieldSelect {
-                        table_id: _,
-                        col_name: field_name,
-                    } => field_name.clone(),
-                    _ => todo!(),
+                    CalcNode::FieldSelect { table_id, col_idx } => {
+                        let table_id = *table_id;
+                        let col_idx = *col_idx;
+                        self.get_calc_node_name2(table_id, col_idx).to_string()
+                    }
+                    CalcNode::FcnCall { name, args } => {
+                        let mut result = String::new();
+                        result.push_str(&name);
+                        result.push_str("(");
+                        let args = args.clone();
+                        for (idx, arg) in args.iter().enumerate() {
+                            if idx > 0 {
+                                result.push_str(", ");
+                            }
+                            result.push_str(self.get_calc_node_name2(*arg, 0));
+                        }
+                        result.push_str(")");
+
+                        result
+                    }
+                    CalcNode::Table { name } => {
+                        let table = self.table_collection.get_table(name);
+                        table.get_column_at_idx(col_idx).name.clone()
+                    }
+                    CalcNode::Where {
+                        source_id,
+                        where_col_id: _,
+                    } => self.get_calc_node_name2(*source_id, col_idx).to_string(),
+                    CalcNode::GroupBy {
+                        source_id: _,
+                        partition_id,
+                        get_id,
+                    } => {
+                        let partition_id = *partition_id;
+                        let get_id = *get_id;
+                        let mut inner_col_ids = Vec::<usize>::new();
+                        inner_col_ids.extend(self.get_calc_node_cols(partition_id));
+                        inner_col_ids.extend(self.get_calc_node_cols(get_id));
+
+                        self.get_calc_node_name2(inner_col_ids[col_idx], 0)
+                            .to_string()
+                    }
+                    CalcNode::GroupByPartition {
+                        source_id,
+                        group_by_id: _,
+                    } => self.get_calc_node_name2(*source_id, col_idx).to_string(),
+                    CalcNode::Selects { col_ids } => {
+                        self.get_calc_node_name2(col_ids[col_idx], 0).to_string()
+                    }
+                    _ => todo!("{:?}", self.get_calc_node(id)),
                 };
-                self.name_cache.insert(id, name);
+                self.name_cache2.insert(key, name);
             }
             _ => {}
-        }
+        };
 
-        self.name_cache[&id].as_str()
+        &self.name_cache2[&key]
     }
+
+    // fn get_calc_node_name(&mut self, id: CalcNodeId) -> &str {
+    //     match self.name_cache.get(&id) {
+    //         None => {
+    //             let name = match self.get_calc_node(id) {
+    //                 CalcNode::FieldSelect { table_id, col_idx } => {
+    //                     let table_id = *table_id;
+    //                     let col_idx = *col_idx;
+    //                     let col_id = self.get_calc_node_cols(table_id)[col_idx];
+    //                     self.get_calc_node_name(col_id).to_string()
+    //                 }
+    //                 CalcNode::FcnCall { name, args } => {
+    //                     let mut result = String::new();
+    //                     result.push_str(&name);
+    //                     result.push_str("(");
+    //                     let args = args.clone();
+    //                     for (idx, arg) in args.iter().enumerate() {
+    //                         if idx > 0 {
+    //                             result.push_str(", ");
+    //                         }
+    //                         result.push_str(self.get_calc_node_name(*arg));
+    //                     }
+    //                     result.push_str(")");
+
+    //                     result
+    //                 }
+    //                 _ => todo!("{:?}", self.get_calc_node(id)),
+    //             };
+    //             self.name_cache.insert(id, name);
+    //         }
+    //         _ => {}
+    //     }
+
+    //     self.name_cache[&id].as_str()
+    // }
 
     fn get_table_col_node_id(&mut self, table_id: CalcNodeId, col_name: &str) -> CalcNodeId {
         let table_name = match self.get_calc_node(table_id) {
-            CalcNode2::Table { name } => name.clone(),
+            CalcNode::Table { name } => name.clone(),
             _ => panic!(),
         };
 
-        let key = (table_name, col_name.to_string());
+        let key = (table_name.clone(), col_name.to_string());
         match self.table_col_node_cache.get(&key) {
             None => {
-                let calc_node = CalcNode2::FieldSelect {
-                    table_id,
-                    col_name: col_name.to_string(),
-                };
-                let new_id = self.add_calc_node(calc_node);
+                let table = self.table_collection.get_table(&table_name);
+                let new_id = self.add_calc_node(CalcNode::FieldSelect {
+                    table_id: table_id,
+                    col_idx: table.get_col_idx(col_name),
+                });
                 self.table_col_node_cache.insert(key.clone(), new_id);
             }
             _ => {}
@@ -199,23 +300,81 @@ impl<'a> CalcNodeCtx<'a> {
             None => {
                 let mut cols = Vec::<CalcNodeId>::new();
                 match self.get_calc_node(id) {
-                    CalcNode2::Table { name } => {
+                    CalcNode::Table { name } => {
                         let table = self.table_collection.get_table(name);
                         for col in table.col_iter() {
                             cols.push(self.get_table_col_node_id(id, &col.name));
                         }
                     }
-                    CalcNode2::FieldSelect {
+                    CalcNode::FieldSelect {
                         table_id: _,
-                        col_name: _,
+                        col_idx: _,
                     } => {
                         cols.push(id);
                     }
-                    CalcNode2::Selects { cols: select_cols } => {
+                    CalcNode::Selects {
+                        col_ids: select_cols,
+                    } => {
                         cols.extend(select_cols);
                     }
-                    CalcNode2::FcnCall { name: _, args: _ } => {
+                    CalcNode::FcnCall { name: _, args: _ } => {
                         cols.push(id);
+                    }
+                    CalcNode::GroupBy {
+                        source_id: _,
+                        partition_id,
+                        get_id,
+                    } => {
+                        let partition_id = *partition_id;
+                        let get_id = *get_id;
+                        // let group_by_ids = self
+                        //     .get_calc_node_cols(partition_id)
+                        //     .iter()
+                        //     .cloned()
+                        //     .collect::<Vec<_>>();
+                        let get_idx = self
+                            .get_calc_node_cols(get_id)
+                            .iter()
+                            .cloned()
+                            .collect::<Vec<_>>();
+
+                        // let all_col_ids = group_by_ids
+                        //     .iter()
+                        //     .chain(get_idx.iter())
+                        //     .cloned()
+                        //     .collect::<Vec<_>>();
+
+                        for (col_idx, _) in get_idx.iter().cloned().enumerate() {
+                            cols.push(self.add_calc_node(CalcNode::FieldSelect {
+                                table_id: id,
+                                col_idx,
+                            }));
+                        }
+                    }
+                    CalcNode::Where {
+                        source_id,
+                        where_col_id: _,
+                    } => {
+                        cols.extend(self.get_calc_node_cols(*source_id));
+                    }
+                    CalcNode::GroupByPartition {
+                        source_id,
+                        group_by_id: _,
+                    } => {
+                        let source_id = *source_id;
+
+                        let col_ids = self
+                            .get_calc_node_cols(source_id)
+                            .iter()
+                            .cloned()
+                            .collect::<Vec<_>>();
+
+                        cols.extend((0..col_ids.len()).map(|col_idx| {
+                            self.add_calc_node(CalcNode::FieldSelect {
+                                table_id: id,
+                                col_idx,
+                            })
+                        }));
                     }
                     _ => todo!("{:?}", self.get_calc_node(id)),
                 };
@@ -226,6 +385,22 @@ impl<'a> CalcNodeCtx<'a> {
         };
 
         self.node_cols_cache[&id].as_slice()
+    }
+
+    fn get_calc_node_col_idx(&mut self, id: CalcNodeId, col_name: &str) -> usize {
+        let col_ids = self
+            .get_calc_node_cols(id)
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+
+        for (col_idx, col_id) in col_ids.iter().cloned().enumerate().rev() {
+            if self.get_calc_node_name2(col_id, 0) == col_name {
+                return col_idx;
+            }
+        }
+
+        panic!("Unable to find col name {:?}", col_name);
     }
 
     // fn get_calc_node_col(&mut self, id: CalcNodeId, col_name: &str) -> CalcNodeId {
@@ -249,6 +424,16 @@ impl<'a> CalcNodeCtx<'a> {
 
     //     self.col_name_cache[&id][col_name]
     // }
+
+    fn register_select_list(&mut self, ctx: &RegisterAstNodeCtx, node: &AstNode) -> CalcNodeId {
+        let mut col_ids = Vec::<CalcNodeId>::new();
+        for select in node.iter_list() {
+            let select_id = self.register_ast_node(ctx, select);
+            col_ids.extend(self.get_calc_node_cols(select_id));
+        }
+
+        self.add_calc_node(CalcNode::Selects { col_ids })
+    }
 
     fn get_ast_col_ids(&mut self, ctx: &RegisterAstNodeCtx, node: &AstNode) -> Vec<CalcNodeId> {
         let mut col_node_ids = Vec::<CalcNodeId>::new();
@@ -278,28 +463,42 @@ impl<'a> CalcNodeCtx<'a> {
             AstNodeType::SelectStmt(selects) => {
                 let select_node_ids = self.get_ast_col_ids(ctx, selects);
 
-                self.add_calc_node(CalcNode2::Selects {
-                    cols: select_node_ids,
+                self.add_calc_node(CalcNode::Selects {
+                    col_ids: select_node_ids,
                 })
             }
-            AstNodeType::Identifier(col_name) => self.add_calc_node(CalcNode2::FieldSelect {
-                table_id: ctx.parent_id,
-                col_name: col_name.clone(),
-            }),
+            AstNodeType::Identifier(col_name) => {
+                let col_idx = self.get_calc_node_col_idx(ctx.parent_id, col_name);
+
+                self.add_calc_node(CalcNode::FieldSelect {
+                    table_id: ctx.parent_id,
+                    col_idx,
+                })
+            }
             AstNodeType::WhereStmt(condition) => {
                 let condition_id = self.register_ast_node(ctx, condition);
-                self.add_calc_node(CalcNode2::Where {
-                    table_id: ctx.parent_id,
+                self.add_calc_node(CalcNode::Where {
+                    source_id: ctx.parent_id,
                     where_col_id: condition_id,
                 })
             }
             AstNodeType::GroupBy { group_by, get_expr } => {
-                let group_by_cols = self.get_ast_col_ids(ctx, group_by);
-                let get_cols = self.get_ast_col_ids(ctx, get_expr);
+                let group_by_id = self.register_select_list(ctx, group_by);
+                let partition_id = self.add_calc_node(CalcNode::GroupByPartition {
+                    source_id: ctx.parent_id,
+                    group_by_id,
+                });
+                let get_id = self.register_select_list(
+                    &RegisterAstNodeCtx {
+                        parent_id: partition_id,
+                    },
+                    get_expr,
+                );
 
-                self.add_calc_node(CalcNode2::GroupBy {
-                    group_by_cols,
-                    get_cols,
+                self.add_calc_node(CalcNode::GroupBy {
+                    source_id: ctx.parent_id,
+                    partition_id,
+                    get_id,
                 })
             }
             AstNodeType::FcnCall { name, args } => {
@@ -318,7 +517,7 @@ impl<'a> CalcNodeCtx<'a> {
                     }
                 }
 
-                self.add_calc_node(CalcNode2::FcnCall {
+                self.add_calc_node(CalcNode::FcnCall {
                     name: fcn_name.to_string(),
                     args: arg_ids,
                 })
@@ -330,7 +529,7 @@ impl<'a> CalcNodeCtx<'a> {
     fn get_table_calc_node(&mut self, name: &str) -> CalcNodeId {
         match self.registered_tables.get(name) {
             None => {
-                let node_id = self.add_calc_node(CalcNode2::Table {
+                let node_id = self.add_calc_node(CalcNode::Table {
                     name: name.to_string(),
                 });
                 self.registered_tables.insert(name.to_string(), node_id);
@@ -341,55 +540,179 @@ impl<'a> CalcNodeCtx<'a> {
         self.registered_tables[name]
     }
 
-    fn eval_calc_node(&mut self, calc_node_id: CalcNodeId) -> &CalcResult {
+    fn eval_calc_node(&mut self, calc_node_id: CalcNodeId) -> &CalcResult2 {
         match self.result_cache.get(&calc_node_id) {
             None => {
                 let result = match self.get_calc_node(calc_node_id) {
-                    CalcNode2::Table { name } => {
-                        let table = self.table_collection.get_table(name).clone();
-                        let len = CalcResultLen::Len(table.get_n_rows());
+                    CalcNode::Table { name } => {
+                        let table = self.table_collection.get_table(name);
+                        let len = table.get_n_rows();
+                        let cols = table
+                            .col_iter()
+                            .map(|col| col.column.clone())
+                            .collect::<Vec<_>>();
 
-                        CalcResult {
-                            result: CalcResultType::Table(table),
-                            len,
+                        CalcResult2 {
+                            cols,
+                            partition: Partition::new_single_partition(len),
+                            is_scalar: false,
                         }
                     }
-                    CalcNode2::FieldSelect { table_id, col_name } => {
+                    CalcNode::FieldSelect { table_id, col_idx } => {
                         let table_id = *table_id;
-                        let col_name = col_name.clone();
+                        let col_idx = *col_idx;
                         let result = self.eval_calc_node(table_id);
-                        let table = match &result.result {
-                            CalcResultType::Table(table) => table,
-                            _ => panic!(),
-                        };
+                        // let table = match &result.result {
+                        //     CalcResultType::Table(table) => table,
+                        //     _ => panic!(),
+                        // };
 
-                        CalcResult {
-                            result: CalcResultType::Col(table.get_column(&col_name)),
-                            len: result.len.clone(),
+                        CalcResult2 {
+                            cols: vec![result.cols[col_idx].clone()],
+                            partition: result.partition.clone(),
+                            // result: CalcResultType::Col(table.get_column(&col_name)),
+                            is_scalar: result.is_scalar,
                         }
                     }
-                    CalcNode2::Where {
-                        table_id,
+                    CalcNode::Where {
+                        source_id: table_id,
                         where_col_id,
                     } => {
                         let table_id = *table_id;
                         let where_col_id = *where_col_id;
 
-                        let condition_result = match &self.eval_calc_node(where_col_id).result {
-                            CalcResultType::Col(col) => col.clone(),
-                            _ => panic!(),
-                        };
-                        let table_result = match &self.eval_calc_node(table_id).result {
-                            CalcResultType::Table(table) => table,
-                            _ => panic!(),
-                        };
+                        let condition_result = self.eval_calc_node(where_col_id);
+                        assert_eq!(condition_result.cols.len(), 1);
+                        let condition_col = &condition_result.cols[0];
+                        let true_indexes = condition_col.get_true_indexes();
 
-                        let result = table_result.where_col_is_true(&condition_result);
-                        let len = result.get_n_rows();
+                        let in_result = self.eval_calc_node(table_id);
+                        let cols = in_result
+                            .cols
+                            .iter()
+                            .map(|col| col.from_indexes(&true_indexes))
+                            .collect::<Vec<_>>();
+                        let partition = in_result.partition.filter_indexes(&true_indexes);
 
-                        CalcResult {
-                            result: CalcResultType::Table(result),
-                            len: CalcResultLen::Len(len),
+                        CalcResult2 {
+                            cols,
+                            partition,
+                            is_scalar: false,
+                        }
+                    }
+                    CalcNode::FcnCall { name, args } => match name.as_str() {
+                        "sum" => {
+                            assert_eq!(args.len(), 1);
+                            let val = self.eval_calc_node(args[0]);
+
+                            // println!("Summing with part {:?}", val.partition.len());
+
+                            let cols = val
+                                .cols
+                                .iter()
+                                .map(|col| {
+                                    col.aggregate_partition(&val.partition, &AggregationType::Sum)
+                                })
+                                .collect::<Vec<_>>();
+
+                            CalcResult2 {
+                                cols,
+                                partition: val.partition.get_single_value_partition(),
+                                is_scalar: false,
+                            }
+                        }
+                        "first" => {
+                            assert_eq!(args.len(), 1);
+                            let val = self.eval_calc_node(args[0]);
+
+                            // println!("Summing with part {:?}", val.partition.len());
+
+                            let cols = val
+                                .cols
+                                .iter()
+                                .map(|col| {
+                                    col.aggregate_partition(&val.partition, &AggregationType::First)
+                                })
+                                .collect::<Vec<_>>();
+
+                            CalcResult2 {
+                                cols,
+                                partition: val.partition.get_single_value_partition(),
+                                is_scalar: false,
+                            }
+                        }
+                        _ => todo!(),
+                    },
+                    CalcNode::Selects { col_ids } => {
+                        let col_ids = col_ids.clone();
+                        let mut cols = Vec::<Column>::new();
+                        let mut is_scalar: Option<bool> = None;
+                        let mut partition: Option<Partition> = None;
+                        for col_id in col_ids {
+                            let col_result = self.eval_calc_node(col_id);
+
+                            match partition {
+                                None => {
+                                    partition = Some(col_result.partition.clone());
+                                    is_scalar = Some(col_result.is_scalar);
+                                }
+                                _ => {}
+                            }
+                            cols.extend(col_result.cols.clone());
+                        }
+
+                        let partition = partition.unwrap();
+                        let is_scalar = is_scalar.unwrap();
+
+                        CalcResult2 {
+                            cols,
+                            partition,
+                            is_scalar,
+                        }
+                    }
+                    CalcNode::GroupBy {
+                        source_id,
+                        partition_id,
+                        get_id,
+                    } => {
+                        let source_id = *source_id;
+                        let partition_id = *partition_id;
+                        let get_id = *get_id;
+
+                        let source_resp = self.eval_calc_node(source_id).clone();
+
+                        let partition_resp = self.eval_calc_node(partition_id).clone();
+
+                        let get_resp = self.eval_calc_node(get_id);
+
+                        let result_part = Partition::undo_group_by(
+                            &source_resp.partition,
+                            &partition_resp.partition,
+                            &get_resp.partition,
+                        );
+
+                        CalcResult2 {
+                            cols: get_resp.cols.clone(),
+                            partition: result_part,
+                            is_scalar: false,
+                        }
+                    }
+                    CalcNode::GroupByPartition {
+                        source_id,
+                        group_by_id,
+                    } => {
+                        let source_id = *source_id;
+                        let group_by_id = *group_by_id;
+
+                        let source_result = self.eval_calc_node(source_id).clone();
+
+                        let result = self.eval_calc_node(group_by_id);
+                        let partition = Column::group_by(&result.cols, &result.partition);
+
+                        CalcResult2 {
+                            cols: source_result.cols.clone(),
+                            partition,
+                            is_scalar: false,
                         }
                     }
                     _ => todo!("{:?}", self.get_calc_node(calc_node_id)),
@@ -404,24 +727,29 @@ impl<'a> CalcNodeCtx<'a> {
 }
 
 #[derive(Debug)]
-enum CalcNode2 {
+enum CalcNode {
     FieldSelect {
         table_id: CalcNodeId,
-        col_name: String,
+        col_idx: usize,
     },
     Where {
-        table_id: CalcNodeId,
+        source_id: CalcNodeId,
         where_col_id: CalcNodeId,
     },
     Table {
         name: String,
     },
     Selects {
-        cols: Vec<CalcNodeId>,
+        col_ids: Vec<CalcNodeId>,
+    },
+    GroupByPartition {
+        source_id: CalcNodeId,
+        group_by_id: CalcNodeId,
     },
     GroupBy {
-        group_by_cols: Vec<CalcNodeId>,
-        get_cols: Vec<CalcNodeId>,
+        source_id: CalcNodeId,
+        partition_id: CalcNodeId,
+        get_id: CalcNodeId,
     },
     FcnCall {
         name: String,

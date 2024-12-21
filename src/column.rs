@@ -3,6 +3,8 @@ use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use std::{hash::DefaultHasher, iter::zip};
 
+use crate::partition::{Partition, PartitionBuilder};
+
 use super::bit_vec::BitVec;
 
 #[derive(Clone)]
@@ -104,17 +106,24 @@ impl Column {
         }
     }
 
-    pub fn batch_aggregate(
+    pub fn aggregate(
         &self,
         aggregation_type: &AggregationType,
         groups: &[Group],
         row_indexes: &[usize],
     ) -> Column {
         Column {
-            col: Rc::new(
-                self.col
-                    .batch_aggregate(aggregation_type, groups, row_indexes),
-            ),
+            col: Rc::new(self.col.aggregate(aggregation_type, groups, row_indexes)),
+        }
+    }
+
+    pub fn aggregate_partition(
+        &self,
+        partition: &Partition,
+        aggregation_type: &AggregationType,
+    ) -> Column {
+        Column {
+            col: Rc::new(self.col.aggregate_partition(partition, aggregation_type)),
         }
     }
 
@@ -157,8 +166,13 @@ impl Column {
         }
     }
 
-    pub fn sum(&self) -> f64 {
-        self.col.sum()
+    pub fn group_by(group_cols: &[Column], partition: &Partition) -> Partition {
+        let inner_group_cols = group_cols
+            .iter()
+            .map(|col| col.col.as_ref())
+            .collect::<Vec<_>>();
+
+        InnerColumn::group_by(&inner_group_cols, partition)
     }
 }
 
@@ -434,7 +448,22 @@ impl InnerColumn {
         self.update_col_hashes(slice);
     }
 
+    fn eq_at_indexes(&self, idx0: usize, idx1: usize) -> bool {
+        if self.nulls.at(idx0) || self.nulls.at(idx1) {
+            return self.nulls.at(idx0) && self.nulls.at(idx1);
+        }
+
+        match &self.values {
+            ColumnValues::Text(inner_col) => {
+                inner_col.get_str_at_idx(idx0) == inner_col.get_str_at_idx(idx1)
+            }
+            ColumnValues::Float64(inner_col) => inner_col.values[idx0] == inner_col.values[idx1],
+            ColumnValues::Bool(inner_col) => inner_col.values.at(idx0) == inner_col.values.at(idx1),
+        }
+    }
+
     pub fn batch_equals(&self, equalities: &[(usize, usize)], is_equal: &mut Vec<bool>) {
+        // DEPRECATE THIS
         match &self.values {
             ColumnValues::Text(inner_col) => {
                 for (idx, (left_idx, right_idx)) in equalities.iter().enumerate() {
@@ -466,7 +495,75 @@ impl InnerColumn {
         }
     }
 
-    pub fn batch_aggregate(
+    pub fn aggregate_partition(
+        &self,
+        partition: &Partition,
+        aggregation_type: &AggregationType,
+    ) -> InnerColumn {
+        return match aggregation_type {
+            AggregationType::Sum => match &self.values {
+                ColumnValues::Float64(values) => {
+                    let mut out_nulls = BitVec::new();
+                    let mut out_values = Vec::<f64>::with_capacity(partition.len());
+                    for span in partition {
+                        let mut has_non_null = false;
+                        let mut val: f64 = 0.0;
+                        for row_idx in span {
+                            if !self.nulls.at(*row_idx) {
+                                has_non_null = true;
+                                val += values.values[*row_idx];
+                            }
+                        }
+                        out_nulls.push(!has_non_null);
+                        out_values.push(val);
+                    }
+
+                    InnerColumn {
+                        nulls: out_nulls,
+                        values: ColumnValues::Float64(Float64ColumnValues { values: out_values }),
+                    }
+                }
+                _ => {
+                    panic!("Unsupported SUM agg for this col type");
+                }
+            },
+            AggregationType::First => match &self.values {
+                ColumnValues::Float64(values) => {
+                    let mut out_nulls = BitVec::new();
+                    let mut out_values = Vec::<f64>::with_capacity(partition.len());
+                    for span in partition {
+                        let first_row_idx = *span.iter().nth(0).unwrap();
+                        out_nulls.push(self.nulls.at(first_row_idx));
+                        out_values.push(values.values[first_row_idx]);
+                    }
+
+                    InnerColumn {
+                        nulls: out_nulls,
+                        values: ColumnValues::Float64(Float64ColumnValues { values: out_values }),
+                    }
+                }
+                ColumnValues::Text(values) => {
+                    let mut builder = TextColBuilder::new(partition.len());
+
+                    for span in partition {
+                        let first_row_idx = *span.iter().nth(0).unwrap();
+                        if self.nulls.at(first_row_idx) {
+                            builder.add_null();
+                        } else {
+                            builder.add_value(values.get_str_at_idx(first_row_idx));
+                        }
+                    }
+
+                    builder.to_col()
+                }
+                _ => {
+                    panic!("Unsupported FIRST agg for this col type");
+                }
+            },
+        };
+    }
+
+    pub fn aggregate(
         &self,
         aggregation_type: &AggregationType,
         groups: &[Group],
@@ -753,13 +850,73 @@ impl InnerColumn {
         }
     }
 
-    fn sum(&self) -> f64 {
-        match &self.values {
-            ColumnValues::Float64(col) => std::iter::zip(col.values.iter(), self.nulls.iter())
-                .filter_map(|(val, is_null)| if is_null { None } else { Some(val) })
-                .fold(0.0, |acc, elem| acc + elem),
-            _ => todo!(),
+    fn group_by(group_cols: &[&InnerColumn], partition: &Partition) -> Partition {
+        struct HashKey<'a> {
+            row_idx: usize,
+            columns: &'a [&'a InnerColumn],
         }
+        impl Eq for HashKey<'_> {}
+        impl PartialEq for HashKey<'_> {
+            fn eq(&self, other: &Self) -> bool {
+                return self
+                    .columns
+                    .iter()
+                    .all(|col| col.eq_at_indexes(self.row_idx, other.row_idx));
+            }
+        }
+        impl Hash for HashKey<'_> {
+            fn hash<H: Hasher>(&self, state: &mut H) {
+                for col in self.columns {
+                    col.hash_at_index(state, self.row_idx);
+                }
+            }
+        }
+
+        let mut part_builder = PartitionBuilder::new();
+        // let mut part_lens = Vec::<usize>::new();
+
+        for span in partition {
+            // TODO: Move out of loop to minimize allocations
+            let mut hash_to_group_idx = HashMap::<HashKey, usize>::new();
+            let mut group_first_indexes = Vec::<usize>::new();
+            let mut group_last_indexes = Vec::<usize>::new();
+            // let mut external_indexes = Vec::<usize>::new();
+            let mut next_indexes = vec![usize::MAX; span.len()];
+
+            for (inner_idx, idx) in span.iter().cloned().enumerate() {
+                // external_indexes.push(*outer_idx);
+                match hash_to_group_idx.entry(HashKey {
+                    row_idx: idx,
+                    columns: group_cols,
+                }) {
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        let group_idx = group_first_indexes.len();
+                        entry.insert(group_idx);
+                        group_first_indexes.push(inner_idx);
+                        group_last_indexes.push(inner_idx);
+                    }
+                    std::collections::hash_map::Entry::Occupied(entry) => {
+                        let group_idx = *entry.get();
+                        let last_idx = &mut group_last_indexes[group_idx];
+                        next_indexes[*last_idx] = inner_idx;
+                        *last_idx = inner_idx;
+                    }
+                }
+            }
+
+            for start_idx in group_first_indexes.iter().cloned() {
+                let mut idx = start_idx;
+                while idx != usize::MAX {
+                    part_builder.add_row_idx(span[idx]);
+                    idx = next_indexes[idx];
+                }
+                part_builder.finish_span();
+            }
+            // part_lens.push(group_first_indexes.len());
+        }
+
+        part_builder.to_partition()
+        // (part_builder.to_partition(), part_lens)
     }
 }
 

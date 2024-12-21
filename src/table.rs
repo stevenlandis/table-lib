@@ -3,6 +3,8 @@ use std::hash::Hash;
 use std::time::Instant;
 use std::{collections::HashMap, hash::Hasher, iter::zip};
 
+use crate::partition::Partition;
+
 use super::column::{AggregationType, Column, Group};
 
 #[derive(Debug, Clone)]
@@ -10,6 +12,7 @@ pub struct Table {
     col_map: HashMap<String, usize>,
     columns: Vec<TableColumnWrapper>,
     n_rows: usize,
+    partition: Partition,
 }
 
 #[derive(Debug, Clone)]
@@ -45,7 +48,10 @@ impl PartialEq for Table {
 }
 
 impl Table {
-    pub fn from_columns(columns_iter: impl IntoIterator<Item = TableColumnWrapper>) -> Self {
+    pub fn from_columns(
+        partition: Partition,
+        columns_iter: impl IntoIterator<Item = TableColumnWrapper>,
+    ) -> Self {
         let mut col_map = HashMap::<String, usize>::new();
         let mut columns = Vec::<TableColumnWrapper>::new();
         let mut n_rows: usize = 0;
@@ -69,6 +75,7 @@ impl Table {
             col_map,
             columns,
             n_rows,
+            partition,
         }
     }
 
@@ -97,6 +104,7 @@ impl Table {
             col_map,
             columns,
             n_rows,
+            partition: Partition::new_single_partition(n_rows),
         };
     }
 
@@ -166,11 +174,11 @@ impl Table {
 
         let mut group_first_indexes = Vec::<usize>::new();
         let mut group_last_indexes = Vec::<usize>::new();
-        let mut external_indexes = Vec::<usize>::new();
+        // let mut external_indexes = Vec::<usize>::new();
         let mut next_indexes = Vec::<usize>::new();
 
         for (inner_idx, outer_idx) in indexes.into_iter().enumerate() {
-            external_indexes.push(*outer_idx);
+            // external_indexes.push(*outer_idx);
             match hash_to_group_idx.entry(HashKey {
                 row_idx: *outer_idx,
                 columns: &group_cols,
@@ -435,7 +443,7 @@ impl Table {
         // add aggregation column values
         for agg in aggregations {
             let in_col = &self.columns[self.col_map[agg.in_col_name]].column;
-            let out_col = in_col.batch_aggregate(
+            let out_col = in_col.aggregate(
                 &agg.agg_type,
                 final_groups.as_slice(),
                 final_group_row_indexes.as_slice(),
@@ -455,6 +463,7 @@ impl Table {
             col_map: new_col_map,
             columns: new_columns,
             n_rows: final_groups.len(),
+            partition: Partition::new_single_partition(final_groups.len()),
         };
     }
 
@@ -474,6 +483,7 @@ impl Table {
             columns: new_columns,
             col_map: new_col_map,
             n_rows: self.n_rows,
+            partition: self.partition.clone(),
         };
     }
 
@@ -607,11 +617,20 @@ impl Table {
             columns: new_cols,
             col_map: new_col_map,
             n_rows: join_mapping.len(),
+            partition: self.partition.clone(),
         };
+    }
+
+    pub fn get_col_idx(&self, col_name: &str) -> usize {
+        self.col_map[col_name]
     }
 
     pub fn get_column(&self, col_name: &str) -> Column {
         return self.columns[self.col_map[col_name]].column.clone();
+    }
+
+    pub fn get_column_at_idx(&self, idx: usize) -> &TableColumnWrapper {
+        &self.columns[idx]
     }
 
     pub fn col_iter<'a>(&'a self) -> std::slice::Iter<'a, TableColumnWrapper> {
@@ -636,6 +655,7 @@ impl Table {
                 })
                 .collect::<Vec<_>>(),
             n_rows: true_indexes.len(),
+            partition: self.partition.filter_indexes(true_indexes.as_slice()),
         };
     }
 
@@ -655,11 +675,12 @@ impl Table {
             col_map: new_col_map,
             columns: new_columns,
             n_rows: self.n_rows,
+            partition: self.partition.clone(),
         };
     }
 
     pub fn repeat_scalar_table(&self, len: usize) -> Table {
-        assert_eq!(len, self.get_n_rows());
+        assert_eq!(self.get_n_rows(), 1);
         Table {
             col_map: self.col_map.clone(),
             columns: self
@@ -671,6 +692,7 @@ impl Table {
                 })
                 .collect(),
             n_rows: len,
+            partition: Partition::new_single_partition(len),
         }
     }
 }

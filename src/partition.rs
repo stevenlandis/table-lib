@@ -41,6 +41,50 @@ impl Partition {
             rc: Rc::new(self.rc.filter_indexes(row_indexes)),
         }
     }
+
+    pub fn get_single_value_partition(&self) -> Partition {
+        Partition {
+            rc: Rc::new(self.rc.get_single_value_partition()),
+        }
+    }
+
+    pub fn undo_group_by(
+        original: &Partition,
+        grouped: &Partition,
+        aggregated: &Partition,
+    ) -> Partition {
+        /*
+        This function is intended to do the reverse of group_by
+        */
+
+        let original = original.rc.as_ref();
+        let grouped = grouped.rc.as_ref();
+        let aggregated = aggregated.rc.as_ref();
+
+        assert_eq!(grouped.len(), aggregated.len());
+
+        let mut result = PartitionBuilder::new();
+        let mut span_idx: usize = 0;
+        for span in &original.spans {
+            let target_row_count = span.len;
+            let mut row_count: usize = 0;
+            while row_count < target_row_count {
+                let group_span = &grouped.spans[span_idx];
+                row_count += group_span.len;
+
+                let agg_span = &aggregated.spans[span_idx];
+                for idx in &aggregated.row_indexes[agg_span.start..agg_span.start + agg_span.len] {
+                    result.add_row_idx(*idx);
+                }
+
+                span_idx += 1;
+            }
+            assert_eq!(row_count, target_row_count);
+            result.finish_span();
+        }
+
+        result.to_partition()
+    }
 }
 
 struct InnerPartition {
@@ -50,7 +94,7 @@ struct InnerPartition {
 
 impl InnerPartition {
     fn len(&self) -> usize {
-        self.row_indexes.len()
+        self.spans.len()
     }
 
     fn filter_indexes(&self, row_indexes: &[usize]) -> InnerPartition {
@@ -70,19 +114,27 @@ impl InnerPartition {
                 }
             }
 
-            if count > 0 {
-                new_spans.push(Span {
-                    start: new_start,
-                    len: count,
-                });
-            }
+            new_spans.push(Span {
+                start: new_start,
+                len: count,
+            });
         }
 
-        assert_eq!(new_row_indexes.len(), row_indexes.len());
+        assert_eq!(new_spans.len(), self.spans.len());
 
         InnerPartition {
             spans: new_spans,
             row_indexes: new_row_indexes,
+        }
+    }
+
+    fn get_single_value_partition(&self) -> InnerPartition {
+        // Reduce ever span down to a single row
+        InnerPartition {
+            spans: (0..self.spans.len())
+                .map(|idx| Span { start: idx, len: 1 })
+                .collect(),
+            row_indexes: (0..self.spans.len()).collect(),
         }
     }
 }
@@ -109,12 +161,58 @@ impl<'a> Iterator for PartitionIter<'a> {
     type Item = &'a [usize];
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.idx > self.partition.spans.len() {
+        if self.idx >= self.partition.spans.len() {
             None
         } else {
             let span = &self.partition.spans[self.idx];
             let result = &self.partition.row_indexes[span.start..span.start + span.len];
+            self.idx += 1;
             Some(result)
+        }
+    }
+}
+
+pub struct PartitionBuilder {
+    spans: Vec<Span>,
+    row_indexes: Vec<usize>,
+}
+
+impl PartitionBuilder {
+    pub fn new() -> Self {
+        PartitionBuilder {
+            spans: Vec::new(),
+            row_indexes: Vec::new(),
+        }
+    }
+
+    pub fn add_row_idx(&mut self, idx: usize) {
+        self.row_indexes.push(idx);
+    }
+
+    pub fn finish_span(&mut self) {
+        match self.spans.last() {
+            None => {
+                self.spans.push(Span {
+                    start: 0,
+                    len: self.row_indexes.len(),
+                });
+            }
+            Some(prev_span) => {
+                let prev_end = prev_span.start + prev_span.len;
+                self.spans.push(Span {
+                    start: prev_end,
+                    len: self.row_indexes.len() - prev_end,
+                });
+            }
+        }
+    }
+
+    pub fn to_partition(self) -> Partition {
+        Partition {
+            rc: Rc::new(InnerPartition {
+                spans: self.spans,
+                row_indexes: self.row_indexes,
+            }),
         }
     }
 }

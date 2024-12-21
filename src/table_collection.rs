@@ -376,6 +376,18 @@ impl<'a> CalcNodeCtx<'a> {
                             })
                         }));
                     }
+                    CalcNode::GroupByGroupFields {
+                        source_id: _,
+                        group_by_id,
+                    } => {
+                        let n_cols = self.get_calc_node_cols(*group_by_id).len();
+                        cols.extend((0..n_cols).map(|col_idx| {
+                            self.add_calc_node(CalcNode::FieldSelect {
+                                table_id: id,
+                                col_idx,
+                            })
+                        }));
+                    }
                     _ => todo!("{:?}", self.get_calc_node(id)),
                 };
 
@@ -484,21 +496,49 @@ impl<'a> CalcNodeCtx<'a> {
             }
             AstNodeType::GroupBy { group_by, get_expr } => {
                 let group_by_id = self.register_select_list(ctx, group_by);
+                let group_by_fields_id = self.add_calc_node(CalcNode::GroupByGroupFields {
+                    source_id: ctx.parent_id,
+                    group_by_id,
+                });
                 let partition_id = self.add_calc_node(CalcNode::GroupByPartition {
                     source_id: ctx.parent_id,
                     group_by_id,
                 });
+
+                // Create a list of result col IDs as first(group_cols) + get_cols
+                let mut get_ids = Vec::<usize>::new();
+
+                // Add first(group_field) for all group fields
+                // These are first so they can be overriden in the get
+                let group_by_col_ids = self
+                    .get_calc_node_cols(group_by_fields_id)
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let group_by_first_col_ids = group_by_col_ids.iter().cloned().map(|col_id| {
+                    self.add_calc_node(CalcNode::FcnCall {
+                        name: "first".to_string(),
+                        args: vec![col_id],
+                    })
+                });
+                get_ids.extend(group_by_first_col_ids);
+
                 let get_id = self.register_select_list(
                     &RegisterAstNodeCtx {
                         parent_id: partition_id,
                     },
                     get_expr,
                 );
+                for get_col_id in self.get_calc_node_cols(get_id) {
+                    get_ids.push(*get_col_id);
+                }
+
+                let combined_get_id = self.add_calc_node(CalcNode::Selects { col_ids: get_ids });
 
                 self.add_calc_node(CalcNode::GroupBy {
                     source_id: ctx.parent_id,
                     partition_id,
-                    get_id,
+                    get_id: combined_get_id,
                 })
             }
             AstNodeType::FcnCall { name, args } => {
@@ -605,8 +645,6 @@ impl<'a> CalcNodeCtx<'a> {
                             assert_eq!(args.len(), 1);
                             let val = self.eval_calc_node(args[0]);
 
-                            // println!("Summing with part {:?}", val.partition.len());
-
                             let cols = val
                                 .cols
                                 .iter()
@@ -624,8 +662,6 @@ impl<'a> CalcNodeCtx<'a> {
                         "first" => {
                             assert_eq!(args.len(), 1);
                             let val = self.eval_calc_node(args[0]);
-
-                            // println!("Summing with part {:?}", val.partition.len());
 
                             let cols = val
                                 .cols
@@ -715,6 +751,22 @@ impl<'a> CalcNodeCtx<'a> {
                             is_scalar: false,
                         }
                     }
+                    CalcNode::GroupByGroupFields {
+                        source_id: _,
+                        group_by_id,
+                    } => {
+                        let group_by_id = *group_by_id;
+
+                        let group_by_result = self.eval_calc_node(group_by_id);
+                        let partition =
+                            Column::group_by(&group_by_result.cols, &group_by_result.partition);
+
+                        CalcResult2 {
+                            cols: group_by_result.cols.clone(),
+                            partition,
+                            is_scalar: false,
+                        }
+                    }
                     _ => todo!("{:?}", self.get_calc_node(calc_node_id)),
                 };
                 self.result_cache.insert(calc_node_id, result);
@@ -741,6 +793,10 @@ enum CalcNode {
     },
     Selects {
         col_ids: Vec<CalcNodeId>,
+    },
+    GroupByGroupFields {
+        source_id: CalcNodeId,
+        group_by_id: CalcNodeId,
     },
     GroupByPartition {
         source_id: CalcNodeId,

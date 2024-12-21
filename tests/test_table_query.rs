@@ -173,7 +173,7 @@ mod tests {
         collection.add_table("tbl0", table);
 
         let result = collection
-            .query("from tbl0 group by id0, id1 get first(id0), first(id1), sum(value)")
+            .query("from tbl0 group by id0, id1 get sum(value)")
             .unwrap();
 
         assert_eq!(

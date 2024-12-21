@@ -223,7 +223,7 @@ impl<'a> CalcNodeCtx<'a> {
                     }
                     CalcNode::GroupByPartition {
                         source_id,
-                        group_by_id: _,
+                        group_by_fields_id: _,
                     } => self.get_calc_node_name2(*source_id, col_idx).to_string(),
                     CalcNode::Selects { col_ids } => {
                         self.get_calc_node_name2(col_ids[col_idx], 0).to_string()
@@ -359,7 +359,7 @@ impl<'a> CalcNodeCtx<'a> {
                     }
                     CalcNode::GroupByPartition {
                         source_id,
-                        group_by_id: _,
+                        group_by_fields_id: _,
                     } => {
                         let source_id = *source_id;
 
@@ -502,7 +502,7 @@ impl<'a> CalcNodeCtx<'a> {
                 });
                 let partition_id = self.add_calc_node(CalcNode::GroupByPartition {
                     source_id: ctx.parent_id,
-                    group_by_id,
+                    group_by_fields_id,
                 });
 
                 // Create a list of result col IDs as first(group_cols) + get_cols
@@ -735,15 +735,16 @@ impl<'a> CalcNodeCtx<'a> {
                     }
                     CalcNode::GroupByPartition {
                         source_id,
-                        group_by_id,
+                        group_by_fields_id,
                     } => {
                         let source_id = *source_id;
-                        let group_by_id = *group_by_id;
+                        let group_by_fields_id = *group_by_fields_id;
 
-                        let source_result = self.eval_calc_node(source_id).clone();
+                        let partition = self.eval_calc_node(group_by_fields_id).partition.clone();
+                        let source_result = self.eval_calc_node(source_id);
 
-                        let result = self.eval_calc_node(group_by_id);
-                        let partition = Column::group_by(&result.cols, &result.partition);
+                        // let result = self.eval_calc_node(group_by_id);
+                        // let partition = Column::group_by(&result.cols, &result.partition);
 
                         CalcResult2 {
                             cols: source_result.cols.clone(),
@@ -800,7 +801,7 @@ enum CalcNode {
     },
     GroupByPartition {
         source_id: CalcNodeId,
-        group_by_id: CalcNodeId,
+        group_by_fields_id: CalcNodeId,
     },
     GroupBy {
         source_id: CalcNodeId,

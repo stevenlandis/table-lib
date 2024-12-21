@@ -1,17 +1,11 @@
 use core::panic;
-use std::{
-    collections::{
-        hash_map::{Entry, OccupiedEntry, VacantEntry},
-        HashMap,
-    },
-    hash::Hash,
-};
+use std::collections::HashMap;
 
 use crate::{
     ast_node::{AstNode, AstNodeType},
     parser::{ParseError, Parser},
-    partition::{self, Partition},
-    Aggregation, AggregationType, ColType, Column, Table, TableColumnWrapper,
+    partition::Partition,
+    AggregationType, Column, Table, TableColumnWrapper,
 };
 
 pub struct TableCollection {
@@ -80,22 +74,6 @@ struct CalcResult2 {
     cols: Vec<Column>,
     partition: Partition,
     is_scalar: bool,
-}
-
-struct CalcResult {
-    result: CalcResultType,
-    len: CalcResultLen,
-}
-
-#[derive(Clone)]
-enum CalcResultLen {
-    Scalar,
-    Len(usize),
-}
-
-enum CalcResultType {
-    Col(Column),
-    Table(Table),
 }
 
 #[derive(Clone, Copy, Debug)]

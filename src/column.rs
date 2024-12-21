@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::io::Write;
 use std::rc::Rc;
 use std::{hash::DefaultHasher, iter::zip};
 
@@ -204,6 +205,46 @@ impl Column {
                 values: ColumnValues::Text(TextColumnValues { values }),
             }),
         }
+    }
+
+    pub fn serialize(&self) -> StringVec {
+        let nulls = &self.col.nulls;
+        let mut result = StringVec::new();
+        match &self.col.values {
+            ColumnValues::Text(values) => {
+                for (is_null, val) in zip(nulls, &values.values) {
+                    if is_null {
+                        result.push("");
+                    } else {
+                        result.push(val);
+                    }
+                }
+            }
+            ColumnValues::Float64(values) => {
+                let mut writer = result.get_writer();
+                for (is_null, val) in zip(nulls, &values.values) {
+                    if is_null {
+                        writer.write_str("null");
+                    } else {
+                        write!(writer, "{}", val).unwrap();
+                    }
+                    writer.finish_value();
+                }
+            }
+            ColumnValues::Bool(values) => {
+                let mut writer = result.get_writer();
+                for (is_null, val) in zip(nulls, &values.values) {
+                    if is_null {
+                        writer.write_str("null");
+                    } else {
+                        write!(writer, "{}", val).unwrap();
+                    }
+                    writer.finish_value();
+                }
+            }
+        }
+
+        result
     }
 }
 
@@ -1089,7 +1130,7 @@ struct TextColBuilder {
 }
 
 impl TextColBuilder {
-    fn new(len: usize) -> Self {
+    fn new(_len: usize) -> Self {
         TextColBuilder {
             nulls: BitVec::new(),
             values: StringVec::new(),

@@ -28,7 +28,7 @@ impl TableCollection {
         &self.table_map[name]
     }
 
-    pub fn query(&self, query: &str) -> Result<Table, ParseError> {
+    pub fn query(&mut self, query: &str) -> Result<Table, ParseError> {
         let mut parser = Parser::new(query);
         let ast = match parser.external_parse_expr() {
             Err(err) => return Err(err),
@@ -106,7 +106,6 @@ impl<'a> CalcNodeCtx<'a> {
 
     fn add_calc_node(&mut self, node: CalcNode) -> CalcNodeId {
         let idx = self.calc_nodes.len();
-        println!("Add calc node idx={:?} is {:?}", idx, node);
         self.calc_nodes.push(node);
         idx
     }
@@ -339,13 +338,15 @@ impl<'a> CalcNodeCtx<'a> {
                     CalcNode::Add(_, _) => {
                         cols.push(id);
                     }
+                    CalcNode::Integer(_) => {
+                        cols.push(id);
+                    }
                     CalcNode::Float64(_) => {
                         cols.push(id);
                     }
                     CalcNode::Alias(_, _) => {
                         cols.push(id);
                     }
-                    _ => todo!("{:?}", self.get_calc_node(id)),
                 };
 
                 self.node_cols_cache.insert(id, cols);

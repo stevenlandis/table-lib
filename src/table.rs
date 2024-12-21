@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
-use std::time::Instant;
 use std::{collections::HashMap, hash::Hasher, iter::zip};
 
 use crate::bit_vec::BitVec;
@@ -83,6 +82,10 @@ impl Table {
 
     pub fn get_n_rows(&self) -> usize {
         return self.n_rows;
+    }
+
+    pub fn get_n_cols(&self) -> usize {
+        self.columns.len()
     }
 
     pub fn from_json_str(json_str: &str) -> Table {
@@ -233,10 +236,7 @@ impl Table {
             .map(|group_col| self.get_column(group_col))
             .collect::<Vec<_>>();
 
-        let t0 = Instant::now();
         let row_hashes = Column::get_col_hashes(self.get_n_rows(), group_cols.as_slice());
-        let d0 = t0.elapsed();
-        println!("Took {:.2?} to get col hashes", d0);
 
         let mut hash_to_group_idx = HashMap::<u64, usize>::new();
         struct HashGroup {
@@ -744,6 +744,121 @@ impl Table {
                 },
             ),
         )
+    }
+
+    pub fn write(&self, out: &mut impl std::io::Write) -> std::io::Result<()> {
+        /*
+        -------------------
+        | col_0 | col_1   |
+        | text  | float64 |
+        -------------------
+        | stuff | 1.23    |
+        -------------------
+        */
+
+        fn wstr(out: &mut impl std::io::Write, str: &str) -> std::io::Result<()> {
+            out.write_all(str.as_bytes())
+        }
+
+        fn wpad(out: &mut impl std::io::Write, str: &str, width: usize) -> std::io::Result<()> {
+            wstr(out, str)?;
+            for _ in 0..(width - str.len()) {
+                wstr(out, " ")?;
+            }
+
+            Ok(())
+        }
+
+        let n_cols = self.get_n_cols();
+        let mut col_names = StringVec::new();
+        let mut col_types = StringVec::new();
+        let mut out_cols = Vec::<StringVec>::new();
+        for col in self.col_iter() {
+            let mut writer = col_names.get_writer();
+            writer.write_str("'");
+            writer.write_str(&col.name);
+            writer.write_str("'");
+
+            col_types.push(&col.column.get_type_name());
+            out_cols.push(col.column.serialize());
+        }
+
+        let mut col_widths = Vec::<usize>::new();
+        for col_idx in 0..n_cols {
+            let mut width = col_names[col_idx].len().max(col_types[col_idx].len());
+            for val in &out_cols[col_idx] {
+                width = width.max(val.len());
+            }
+            col_widths.push(width);
+        }
+
+        // write headers
+        for col_idx in 0..n_cols {
+            if col_idx == 0 {
+                wstr(out, "-")?;
+            }
+            let width = col_widths[col_idx];
+            for _ in 0..(width + 2) {
+                wstr(out, "-")?;
+            }
+            wstr(out, "-")?;
+        }
+        wstr(out, "\n")?;
+        for col_idx in 0..n_cols {
+            if col_idx == 0 {
+                wstr(out, "| ")?;
+            }
+            let width = col_widths[col_idx];
+            wpad(out, &col_names[col_idx], width)?;
+            wstr(out, " |")?;
+        }
+        wstr(out, "\n")?;
+        for col_idx in 0..n_cols {
+            if col_idx == 0 {
+                wstr(out, "| ")?;
+            }
+            let width = col_widths[col_idx];
+            wpad(out, &col_types[col_idx], width)?;
+            wstr(out, " |")?;
+        }
+        wstr(out, "\n")?;
+        for col_idx in 0..n_cols {
+            if col_idx == 0 {
+                wstr(out, "-")?;
+            }
+            let width = col_widths[col_idx];
+            for _ in 0..(width + 2) {
+                wstr(out, "-")?;
+            }
+            wstr(out, "-")?;
+        }
+        wstr(out, "\n")?;
+
+        for row_idx in 0..self.get_n_rows() {
+            for col_idx in 0..n_cols {
+                if col_idx == 0 {
+                    wstr(out, "| ")?;
+                }
+                let width = col_widths[col_idx];
+                wpad(out, &out_cols[col_idx][row_idx], width)?;
+                wstr(out, " |")?;
+            }
+            wstr(out, "\n")?;
+        }
+
+        for col_idx in 0..n_cols {
+            if col_idx == 0 {
+                wstr(out, "-")?;
+            }
+            let width = col_widths[col_idx];
+            for _ in 0..(width + 2) {
+                wstr(out, "-")?;
+            }
+            wstr(out, "-")?;
+        }
+        wstr(out, "\n")?;
+
+        Ok(())
     }
 }
 

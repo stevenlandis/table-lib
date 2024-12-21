@@ -377,7 +377,7 @@ impl<'a> CalcNodeCtx<'a> {
                         }));
                     }
                     CalcNode::GroupByGroupFields {
-                        source_id: _,
+                        // source_id: _,
                         group_by_id,
                     } => {
                         let n_cols = self.get_calc_node_cols(*group_by_id).len();
@@ -497,7 +497,7 @@ impl<'a> CalcNodeCtx<'a> {
             AstNodeType::GroupBy { group_by, get_expr } => {
                 let group_by_id = self.register_select_list(ctx, group_by);
                 let group_by_fields_id = self.add_calc_node(CalcNode::GroupByGroupFields {
-                    source_id: ctx.parent_id,
+                    // source_id: ctx.parent_id,
                     group_by_id,
                 });
                 let partition_id = self.add_calc_node(CalcNode::GroupByPartition {
@@ -753,7 +753,7 @@ impl<'a> CalcNodeCtx<'a> {
                         }
                     }
                     CalcNode::GroupByGroupFields {
-                        source_id: _,
+                        // source_id: _,
                         group_by_id,
                     } => {
                         let group_by_id = *group_by_id;
@@ -796,14 +796,16 @@ enum CalcNode {
         col_ids: Vec<CalcNodeId>,
     },
     GroupByGroupFields {
-        source_id: CalcNodeId,
+        // A table of group by fields with grouped partition
         group_by_id: CalcNodeId,
     },
     GroupByPartition {
+        // A table of source columns but with grouped partition
         source_id: CalcNodeId,
         group_by_fields_id: CalcNodeId,
     },
     GroupBy {
+        // root calc node for groups
         source_id: CalcNodeId,
         partition_id: CalcNodeId,
         get_id: CalcNodeId,

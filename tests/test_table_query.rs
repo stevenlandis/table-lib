@@ -304,35 +304,37 @@ mod tests {
         );
     }
 
-    // #[test]
-    // fn get_sum() {
-    //     let table = Table::from_json_str(
-    //         r#"
-    //         {
-    //             "columns": [
-    //                 {
-    //                     "name": "val0",
-    //                     "type": "float64",
-    //                     "values": ["0", "1", "2"]
-    //                 }
-    //             ]
-    //         }
-    //         "#,
-    //     );
+    #[test]
+    fn get_sum_no_group() {
+        let table = Table::from_json_str(
+            r#"
+            {
+                "columns": [
+                    {
+                        "name": "val0",
+                        "type": "float64",
+                        "values": ["0", "1", "2"]
+                    }
+                ]
+            }
+            "#,
+        );
 
-    //     let result = table.query("get sum(val0)").unwrap();
+        let mut collection = TableCollection::new();
+        collection.add_table("tbl0", table);
+        let result = collection.query("from tbl0 get sum(val0)").unwrap();
 
-    //     assert_eq!(
-    //         result,
-    //         Table::from_json_str(
-    //             r#"{"columns":[
-    //                 {
-    //                     "name": "sum(val0)",
-    //                     "type": "float64",
-    //                     "values": ["3"]
-    //                 }
-    //             ]}"#
-    //         )
-    //     );
-    // }
+        assert_eq!(
+            result,
+            Table::from_json_str(
+                r#"{"columns":[
+                    {
+                        "name": "sum(val0)",
+                        "type": "float64",
+                        "values": ["3"]
+                    }
+                ]}"#
+            )
+        );
+    }
 }

@@ -11,3 +11,4 @@ mod ast_node;
 mod bit_vec;
 mod parser;
 mod partition;
+mod str_vec;

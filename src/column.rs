@@ -4,6 +4,7 @@ use std::rc::Rc;
 use std::{hash::DefaultHasher, iter::zip};
 
 use crate::partition::{Partition, PartitionBuilder};
+use crate::str_vec::StringVec;
 
 use super::bit_vec::BitVec;
 
@@ -195,6 +196,15 @@ impl Column {
 
         InnerColumn::group_by(&inner_group_cols, partition)
     }
+
+    pub fn from_str_vec(nulls: BitVec, values: StringVec) -> Column {
+        Column {
+            col: Rc::new(InnerColumn {
+                nulls,
+                values: ColumnValues::Text(TextColumnValues { values }),
+            }),
+        }
+    }
 }
 
 impl PartialEq for Column {
@@ -239,7 +249,7 @@ impl ColType {
 impl InnerColumn {
     pub fn len(&self) -> usize {
         return match &self.values {
-            ColumnValues::Text(col) => col.records.len(),
+            ColumnValues::Text(col) => col.values.len(),
             ColumnValues::Float64(col) => col.values.len(),
             ColumnValues::Bool(col) => col.values.len(),
         };
@@ -488,9 +498,7 @@ impl InnerColumn {
         match &self.values {
             ColumnValues::Text(inner_col) => {
                 for (idx, (left_idx, right_idx)) in equalities.iter().enumerate() {
-                    if is_equal[idx]
-                        && inner_col.records[*left_idx].start_idx
-                            != inner_col.records[*right_idx].start_idx
+                    if is_equal[idx] && inner_col.values[*left_idx] != inner_col.values[*right_idx]
                     {
                         is_equal[idx] = false;
                     }
@@ -1026,51 +1034,32 @@ pub struct TextColRecord {
 
 #[derive(Debug)]
 pub struct TextColumnValues {
-    pub base_data: Vec<u8>,
-    pub records: Vec<TextColRecord>,
+    values: StringVec,
 }
 
 impl TextColumnValues {
     fn get_str_at_idx(&self, idx: usize) -> &str {
-        let record = &self.records[idx];
-        unsafe {
-            return std::str::from_utf8_unchecked(
-                &self.base_data[record.start_idx..record.start_idx + record.len],
-            );
-        }
+        &self.values[idx]
     }
 
     fn from_indexes(&self, indexes: &Vec<usize>) -> TextColumnValues {
-        let mut base_data = Vec::<u8>::new();
-        let mut records = Vec::<TextColRecord>::with_capacity(indexes.len());
+        let mut values = StringVec::new();
 
         for idx in indexes {
-            let record = &self.records[*idx];
-            records.push(TextColRecord {
-                start_idx: base_data.len(),
-                len: record.len,
-            });
-            base_data.extend_from_slice(
-                &self.base_data[record.start_idx..record.start_idx + record.len],
-            );
+            values.push(&self.values[*idx]);
         }
 
-        TextColumnValues { base_data, records }
+        TextColumnValues { values }
     }
 
     fn from_repeated_value(value: &str, len: usize) -> TextColumnValues {
-        let mut base_data = Vec::<u8>::with_capacity(len * value.len());
-        let mut records = Vec::<TextColRecord>::with_capacity(len);
+        let mut values = StringVec::new();
 
         for _ in 0..len {
-            records.push(TextColRecord {
-                start_idx: base_data.len(),
-                len: value.len(),
-            });
-            base_data.extend_from_slice(value.as_bytes());
+            values.push(value);
         }
 
-        TextColumnValues { base_data, records }
+        TextColumnValues { values }
     }
 }
 
@@ -1094,56 +1083,34 @@ pub struct Group {
     pub len: usize,
 }
 
-struct TextColBuilder<'a> {
+struct TextColBuilder {
     nulls: BitVec,
-    base_data: Vec<u8>,
-    records: Vec<TextColRecord>,
-    val_map: HashMap<&'a str, TextColRecord>,
+    values: StringVec,
 }
 
-impl<'a> TextColBuilder<'a> {
+impl TextColBuilder {
     fn new(len: usize) -> Self {
         TextColBuilder {
             nulls: BitVec::new(),
-            base_data: Vec::new(),
-            records: Vec::with_capacity(len),
-            val_map: HashMap::new(),
+            values: StringVec::new(),
         }
     }
 
-    fn add_value<'b: 'a>(&mut self, value: &'b str) {
+    fn add_value(&mut self, value: &str) {
         self.nulls.push(false);
-        match self.val_map.get(value) {
-            None => {
-                let bytes = value.as_bytes();
-                let record = TextColRecord {
-                    start_idx: self.base_data.len(),
-                    len: bytes.len(),
-                };
-                self.records.push(record);
-                self.base_data.extend(bytes);
-                self.val_map.insert(value, record.clone());
-            }
-            Some(val_record) => {
-                self.records.push(*val_record);
-            }
-        }
+        self.values.push(value);
     }
 
     fn add_null(&mut self) {
         self.nulls.push(true);
-        self.records.push(TextColRecord {
-            start_idx: 0,
-            len: 0,
-        });
+        self.values.push("");
     }
 
     fn to_col(self) -> InnerColumn {
         return InnerColumn {
             nulls: self.nulls,
             values: ColumnValues::Text(TextColumnValues {
-                base_data: self.base_data,
-                records: self.records,
+                values: self.values,
             }),
         };
     }

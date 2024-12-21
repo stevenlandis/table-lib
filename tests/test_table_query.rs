@@ -239,42 +239,29 @@ mod tests {
         );
     }
 
-    // #[test]
-    // fn query_scalar() {
-    //     let table = Table::from_json_str(
-    //         r#"
-    //         {
-    //             "columns": [
-    //                 {
-    //                     "name": "val0",
-    //                     "type": "float64",
-    //                     "values": ["0", "1", "2"]
-    //                 }
-    //             ]
-    //         }
-    //         "#,
-    //     );
+    #[test]
+    fn query_scalar() {
+        let collection = TableCollection::new();
+        let result = collection.query("get 1.5, 1.5 + 2.5").unwrap();
 
-    //     let result = table.query("get 1.5, 1.5 + 2.5").unwrap();
-
-    //     assert_eq!(
-    //         result,
-    //         Table::from_json_str(
-    //             r#"{"columns":[
-    //                 {
-    //                     "name": "1.5",
-    //                     "type": "float64",
-    //                     "values": ["1.5"]
-    //                 },
-    //                 {
-    //                     "name": "(1.5 + 2.5)",
-    //                     "type": "float64",
-    //                     "values": ["4"]
-    //                 }
-    //             ]}"#
-    //         )
-    //     );
-    // }
+        assert_eq!(
+            result,
+            Table::from_json_str(
+                r#"{"columns":[
+                    {
+                        "name": "1.5",
+                        "type": "float64",
+                        "values": ["1.5"]
+                    },
+                    {
+                        "name": "(1.5 + 2.5)",
+                        "type": "float64",
+                        "values": ["4"]
+                    }
+                ]}"#
+            )
+        );
+    }
 
     // #[test]
     // fn get_alias() {

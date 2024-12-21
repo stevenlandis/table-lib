@@ -220,6 +220,7 @@ impl<'a> CalcNodeCtx<'a> {
                         result
                     }
                     CalcNode::Integer(val) => val.to_string(),
+                    CalcNode::Float64(val) => val.to_string(),
                     _ => todo!("{:?}", self.get_calc_node(id)),
                 };
                 self.name_cache2.insert(key, name);
@@ -381,6 +382,9 @@ impl<'a> CalcNodeCtx<'a> {
                         }));
                     }
                     CalcNode::Add(_, _) => {
+                        cols.push(id);
+                    }
+                    CalcNode::Float64(_) => {
                         cols.push(id);
                     }
                     _ => todo!("{:?}", self.get_calc_node(id)),
@@ -563,6 +567,7 @@ impl<'a> CalcNodeCtx<'a> {
                 self.add_calc_node(CalcNode::Add(left_id, right_id))
             }
             AstNodeType::Integer(val) => self.add_calc_node(CalcNode::Integer(*val)),
+            AstNodeType::Float64(val) => self.add_calc_node(CalcNode::Float64(*val)),
             _ => todo!("Unknown type {:?}", node),
         }
     }
@@ -801,6 +806,11 @@ impl<'a> CalcNodeCtx<'a> {
                         partition: Partition::new_single_partition(1),
                         is_scalar: true,
                     },
+                    CalcNode::Float64(val) => CalcResult2 {
+                        cols: vec![Column::from_repeated_f64(*val, 1)],
+                        partition: Partition::new_single_partition(1),
+                        is_scalar: true,
+                    },
                     _ => todo!("{:?}", self.get_calc_node(calc_node_id)),
                 };
                 self.result_cache.insert(calc_node_id, result);
@@ -849,6 +859,7 @@ enum CalcNode {
     },
     Add(CalcNodeId, CalcNodeId),
     Integer(u64),
+    Float64(f64),
 }
 
 type CalcNodeId = usize;

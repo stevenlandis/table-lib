@@ -263,44 +263,46 @@ mod tests {
         );
     }
 
-    // #[test]
-    // fn get_alias() {
-    //     let table = Table::from_json_str(
-    //         r#"
-    //         {
-    //             "columns": [
-    //                 {
-    //                     "name": "val0",
-    //                     "type": "float64",
-    //                     "values": ["0", "1", "2"]
-    //                 }
-    //             ]
-    //         }
-    //         "#,
-    //     );
+    #[test]
+    fn get_alias() {
+        let table = Table::from_json_str(
+            r#"
+            {
+                "columns": [
+                    {
+                        "name": "val0",
+                        "type": "float64",
+                        "values": ["0", "1", "2"]
+                    }
+                ]
+            }
+            "#,
+        );
 
-    //     let result = table
-    //         .query("get val0 as my_alias, val0 as other_alias")
-    //         .unwrap();
+        let mut collection = TableCollection::new();
+        collection.add_table("tbl0", table);
+        let result = collection
+            .query("from tbl0 get val0 as my_alias, val0 as other_alias")
+            .unwrap();
 
-    //     assert_eq!(
-    //         result,
-    //         Table::from_json_str(
-    //             r#"{"columns":[
-    //                 {
-    //                     "name": "my_alias",
-    //                     "type": "float64",
-    //                     "values": ["0", "1", "2"]
-    //                 },
-    //                 {
-    //                     "name": "other_alias",
-    //                     "type": "float64",
-    //                     "values": ["0", "1", "2"]
-    //                 }
-    //             ]}"#
-    //         )
-    //     );
-    // }
+        assert_eq!(
+            result,
+            Table::from_json_str(
+                r#"{"columns":[
+                    {
+                        "name": "my_alias",
+                        "type": "float64",
+                        "values": ["0", "1", "2"]
+                    },
+                    {
+                        "name": "other_alias",
+                        "type": "float64",
+                        "values": ["0", "1", "2"]
+                    }
+                ]}"#
+            )
+        );
+    }
 
     // #[test]
     // fn get_sum() {

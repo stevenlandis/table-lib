@@ -130,6 +130,9 @@ impl<'a> CalcNodeCtx<'a> {
     }
 
     fn get_calc_node(&self, id: CalcNodeId) -> &CalcNode {
+        if id == usize::MAX {
+            panic!("Undefined parent. Maybe missing a \"from\" clause in the query?");
+        }
         &self.calc_nodes[id]
     }
 
@@ -221,6 +224,7 @@ impl<'a> CalcNodeCtx<'a> {
                     }
                     CalcNode::Integer(val) => val.to_string(),
                     CalcNode::Float64(val) => val.to_string(),
+                    CalcNode::Alias(_, name) => name.clone(),
                     _ => todo!("{:?}", self.get_calc_node(id)),
                 };
                 self.name_cache2.insert(key, name);
@@ -385,6 +389,9 @@ impl<'a> CalcNodeCtx<'a> {
                         cols.push(id);
                     }
                     CalcNode::Float64(_) => {
+                        cols.push(id);
+                    }
+                    CalcNode::Alias(col_id, _) => {
                         cols.push(id);
                     }
                     _ => todo!("{:?}", self.get_calc_node(id)),
@@ -568,6 +575,15 @@ impl<'a> CalcNodeCtx<'a> {
             }
             AstNodeType::Integer(val) => self.add_calc_node(CalcNode::Integer(*val)),
             AstNodeType::Float64(val) => self.add_calc_node(CalcNode::Float64(*val)),
+            AstNodeType::Alias { expr, alias } => {
+                let expr_id = self.register_ast_node(ctx, expr);
+                let alias_name = match alias.get_type() {
+                    AstNodeType::Identifier(name) => name.clone(),
+                    _ => panic!(),
+                };
+
+                self.add_calc_node(CalcNode::Alias(expr_id, alias_name))
+            }
             _ => todo!("Unknown type {:?}", node),
         }
     }
@@ -811,6 +827,7 @@ impl<'a> CalcNodeCtx<'a> {
                         partition: Partition::new_single_partition(1),
                         is_scalar: true,
                     },
+                    CalcNode::Alias(col_id, _) => self.eval_calc_node(*col_id).clone(),
                     _ => todo!("{:?}", self.get_calc_node(calc_node_id)),
                 };
                 self.result_cache.insert(calc_node_id, result);
@@ -860,6 +877,7 @@ enum CalcNode {
     Add(CalcNodeId, CalcNodeId),
     Integer(u64),
     Float64(f64),
+    Alias(CalcNodeId, String),
 }
 
 type CalcNodeId = usize;

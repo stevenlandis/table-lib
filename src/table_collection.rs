@@ -206,6 +206,20 @@ impl<'a> CalcNodeCtx<'a> {
                     CalcNode::Selects { col_ids } => {
                         self.get_calc_node_name2(col_ids[col_idx], 0).to_string()
                     }
+                    CalcNode::Add(left, right) => {
+                        let left = *left;
+                        let right = *right;
+
+                        let mut result = String::new();
+                        result.push_str("(");
+                        result.push_str(self.get_calc_node_name2(left, 0));
+                        result.push_str(" + ");
+                        result.push_str(self.get_calc_node_name2(right, 0));
+                        result.push_str(")");
+
+                        result
+                    }
+                    CalcNode::Integer(val) => val.to_string(),
                     _ => todo!("{:?}", self.get_calc_node(id)),
                 };
                 self.name_cache2.insert(key, name);
@@ -365,6 +379,9 @@ impl<'a> CalcNodeCtx<'a> {
                                 col_idx,
                             })
                         }));
+                    }
+                    CalcNode::Add(_, _) => {
+                        cols.push(id);
                     }
                     _ => todo!("{:?}", self.get_calc_node(id)),
                 };
@@ -540,6 +557,12 @@ impl<'a> CalcNodeCtx<'a> {
                     args: arg_ids,
                 })
             }
+            AstNodeType::Add(left, right) => {
+                let left_id = self.register_ast_node(ctx, left);
+                let right_id = self.register_ast_node(ctx, right);
+                self.add_calc_node(CalcNode::Add(left_id, right_id))
+            }
+            AstNodeType::Integer(val) => self.add_calc_node(CalcNode::Integer(*val)),
             _ => todo!("Unknown type {:?}", node),
         }
     }
@@ -746,6 +769,38 @@ impl<'a> CalcNodeCtx<'a> {
                             is_scalar: false,
                         }
                     }
+                    CalcNode::Add(left_id, right_id) => {
+                        let left_id = *left_id;
+                        let right_id = *right_id;
+
+                        let left_result = self.eval_calc_node(left_id);
+                        assert_eq!(left_result.cols.len(), 1);
+                        let mut left_col = left_result.cols[0].clone();
+                        let left_is_scalar = left_result.is_scalar;
+                        let left_partition = left_result.partition.clone();
+
+                        let right_result = self.eval_calc_node(right_id);
+                        assert_eq!(right_result.cols.len(), 1);
+                        let mut right_col = right_result.cols[0].clone();
+                        let right_is_scalar = right_result.is_scalar;
+
+                        if left_is_scalar && !right_is_scalar {
+                            left_col = left_col.repeat_scalar_col(right_col.len());
+                        } else if right_is_scalar && !left_is_scalar {
+                            right_col = right_col.repeat_scalar_col(left_col.len());
+                        }
+
+                        CalcResult2 {
+                            cols: vec![left_col + right_col],
+                            partition: left_partition,
+                            is_scalar: left_is_scalar && right_is_scalar,
+                        }
+                    }
+                    CalcNode::Integer(val) => CalcResult2 {
+                        cols: vec![Column::from_repeated_f64(*val as f64, 1)],
+                        partition: Partition::new_single_partition(1),
+                        is_scalar: true,
+                    },
                     _ => todo!("{:?}", self.get_calc_node(calc_node_id)),
                 };
                 self.result_cache.insert(calc_node_id, result);
@@ -792,6 +847,8 @@ enum CalcNode {
         name: String,
         args: Vec<CalcNodeId>,
     },
+    Add(CalcNodeId, CalcNodeId),
+    Integer(u64),
 }
 
 type CalcNodeId = usize;

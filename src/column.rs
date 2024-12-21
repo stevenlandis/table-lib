@@ -166,6 +166,27 @@ impl Column {
         }
     }
 
+    pub fn repeat_with_partition(
+        &self,
+        partition: &Partition,
+        target_partition: &Partition,
+    ) -> Column {
+        // Intended for cases like
+        // from tbl group by foo get bar + sum(bar)
+        // to repeat sum(bar) so it matches bar
+        assert_eq!(partition.len(), target_partition.len());
+        let mut indexes = Vec::<usize>::new();
+        for (span, target_span) in std::iter::zip(partition, target_partition) {
+            assert_eq!(span.len(), 1);
+            let idx = span[0];
+            for _ in target_span {
+                indexes.push(idx);
+            }
+        }
+
+        self.from_indexes(&indexes)
+    }
+
     pub fn group_by(group_cols: &[Column], partition: &Partition) -> Partition {
         let inner_group_cols = group_cols
             .iter()

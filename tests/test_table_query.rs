@@ -200,42 +200,44 @@ mod tests {
         );
     }
 
-    // #[test]
-    // fn basic_get_expr() {
-    //     let table = Table::from_json_str(
-    //         r#"
-    //         {
-    //             "columns": [
-    //                 {
-    //                     "name": "val0",
-    //                     "type": "float64",
-    //                     "values": ["0", "1", "2"]
-    //                 },
-    //                 {
-    //                     "name": "val1",
-    //                     "type": "float64",
-    //                     "values": ["3", "4", "5"]
-    //                 }
-    //             ]
-    //         }
-    //         "#,
-    //     );
+    #[test]
+    fn basic_get_expr() {
+        let table = Table::from_json_str(
+            r#"
+            {
+                "columns": [
+                    {
+                        "name": "val0",
+                        "type": "float64",
+                        "values": ["0", "1", "2"]
+                    },
+                    {
+                        "name": "val1",
+                        "type": "float64",
+                        "values": ["3", "4", "5"]
+                    }
+                ]
+            }
+            "#,
+        );
 
-    //     let result = table.query("get val0 + val1 + 1").unwrap();
+        let mut collection = TableCollection::new();
+        collection.add_table("tbl0", table);
+        let result = collection.query("from tbl0 get val0 + val1 + 1").unwrap();
 
-    //     assert_eq!(
-    //         result,
-    //         Table::from_json_str(
-    //             r#"{"columns":[
-    //                 {
-    //                     "name": "((val0 + val1) + 1)",
-    //                     "type": "float64",
-    //                     "values": ["4", "6", "8"]
-    //                 }
-    //             ]}"#
-    //         )
-    //     );
-    // }
+        assert_eq!(
+            result,
+            Table::from_json_str(
+                r#"{"columns":[
+                    {
+                        "name": "((val0 + val1) + 1)",
+                        "type": "float64",
+                        "values": ["4", "6", "8"]
+                    }
+                ]}"#
+            )
+        );
+    }
 
     // #[test]
     // fn query_scalar() {

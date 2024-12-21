@@ -76,19 +76,10 @@ struct CalcResult2 {
     is_scalar: bool,
 }
 
-#[derive(Clone, Copy, Debug)]
-enum LenExpr {
-    Scalar,
-    NodeId(usize),
-}
-
 struct CalcNodeCtx<'a> {
     table_collection: &'a TableCollection,
     calc_nodes: Vec<CalcNode>,
-    len_node_idx: usize,
     registered_tables: HashMap<String, CalcNodeId>,
-    len_expr_cache: HashMap<CalcNodeId, LenExpr>,
-    name_cache: HashMap<CalcNodeId, String>,
     name_cache2: HashMap<(CalcNodeId, usize), String>,
     node_cols_cache: HashMap<CalcNodeId, Vec<CalcNodeId>>,
     table_col_node_cache: HashMap<(String, String), CalcNodeId>,
@@ -105,21 +96,12 @@ impl<'a> CalcNodeCtx<'a> {
         CalcNodeCtx {
             table_collection,
             calc_nodes: Vec::new(),
-            len_node_idx: 0,
             registered_tables: HashMap::new(),
-            len_expr_cache: HashMap::new(),
-            name_cache: HashMap::new(),
             name_cache2: HashMap::new(),
             node_cols_cache: HashMap::new(),
             table_col_node_cache: HashMap::new(),
             result_cache: HashMap::new(),
         }
-    }
-
-    fn get_new_len_node_idx(&mut self) -> usize {
-        let result = self.len_node_idx;
-        self.len_node_idx += 1;
-        result
     }
 
     fn add_calc_node(&mut self, node: CalcNode) -> CalcNodeId {
@@ -134,25 +116,6 @@ impl<'a> CalcNodeCtx<'a> {
             panic!("Undefined parent. Maybe missing a \"from\" clause in the query?");
         }
         &self.calc_nodes[id]
-    }
-
-    fn get_calc_node_len(&mut self, id: CalcNodeId) -> &LenExpr {
-        match self.len_expr_cache.get(&id) {
-            None => {
-                let len_expr = match self.get_calc_node(id) {
-                    CalcNode::Table { name: _ } => LenExpr::NodeId(self.get_new_len_node_idx()),
-                    CalcNode::FieldSelect {
-                        table_id,
-                        col_idx: _,
-                    } => *self.get_calc_node_len(*table_id),
-                    _ => todo!(),
-                };
-                self.len_expr_cache.insert(id, len_expr);
-            }
-            _ => {}
-        };
-
-        &self.len_expr_cache[&id]
     }
 
     fn get_calc_node_name2(&mut self, id: CalcNodeId, col_idx: usize) -> &str {
@@ -319,27 +282,15 @@ impl<'a> CalcNodeCtx<'a> {
                     }
                     CalcNode::GroupBy {
                         source_id: _,
-                        partition_id,
+                        partition_id: _,
                         get_id,
                     } => {
-                        let partition_id = *partition_id;
                         let get_id = *get_id;
-                        // let group_by_ids = self
-                        //     .get_calc_node_cols(partition_id)
-                        //     .iter()
-                        //     .cloned()
-                        //     .collect::<Vec<_>>();
                         let get_idx = self
                             .get_calc_node_cols(get_id)
                             .iter()
                             .cloned()
                             .collect::<Vec<_>>();
-
-                        // let all_col_ids = group_by_ids
-                        //     .iter()
-                        //     .chain(get_idx.iter())
-                        //     .cloned()
-                        //     .collect::<Vec<_>>();
 
                         for (col_idx, _) in get_idx.iter().cloned().enumerate() {
                             cols.push(self.add_calc_node(CalcNode::FieldSelect {
@@ -391,7 +342,7 @@ impl<'a> CalcNodeCtx<'a> {
                     CalcNode::Float64(_) => {
                         cols.push(id);
                     }
-                    CalcNode::Alias(col_id, _) => {
+                    CalcNode::Alias(_, _) => {
                         cols.push(id);
                     }
                     _ => todo!("{:?}", self.get_calc_node(id)),
@@ -828,7 +779,6 @@ impl<'a> CalcNodeCtx<'a> {
                         is_scalar: true,
                     },
                     CalcNode::Alias(col_id, _) => self.eval_calc_node(*col_id).clone(),
-                    _ => todo!("{:?}", self.get_calc_node(calc_node_id)),
                 };
                 self.result_cache.insert(calc_node_id, result);
             }

@@ -24,7 +24,12 @@ impl TableCollection {
         self.table_map.insert(name.to_string(), table);
     }
 
-    fn get_table(&self, name: &str) -> &Table {
+    fn get_table(&mut self, name: &str) -> &Table {
+        if name.ends_with(".csv") && !self.table_map.contains_key(name) {
+            self.table_map
+                .insert(name.to_string(), Table::from_csv(name));
+        }
+
         &self.table_map[name]
     }
 
@@ -77,7 +82,7 @@ struct CalcResult2 {
 }
 
 struct CalcNodeCtx<'a> {
-    table_collection: &'a TableCollection,
+    table_collection: &'a mut TableCollection,
     calc_nodes: Vec<CalcNode>,
     registered_tables: HashMap<String, CalcNodeId>,
     name_cache2: HashMap<(CalcNodeId, usize), String>,
@@ -92,7 +97,7 @@ struct RegisterAstNodeCtx {
 }
 
 impl<'a> CalcNodeCtx<'a> {
-    fn new(table_collection: &'a TableCollection) -> Self {
+    fn new(table_collection: &'a mut TableCollection) -> Self {
         CalcNodeCtx {
             table_collection,
             calc_nodes: Vec::new(),
@@ -143,7 +148,8 @@ impl<'a> CalcNodeCtx<'a> {
                         result
                     }
                     CalcNode::Table { name } => {
-                        let table = self.table_collection.get_table(name);
+                        let name = name.clone();
+                        let table = self.table_collection.get_table(&name);
                         table.get_column_at_idx(col_idx).name.clone()
                     }
                     CalcNode::Where {
@@ -241,7 +247,7 @@ impl<'a> CalcNodeCtx<'a> {
         let key = (table_name.clone(), col_name.to_string());
         match self.table_col_node_cache.get(&key) {
             None => {
-                let table = self.table_collection.get_table(&table_name);
+                let table = self.table_collection.get_table(&table_name).clone();
                 let new_id = self.add_calc_node(CalcNode::FieldSelect {
                     table_id: table_id,
                     col_idx: table.get_col_idx(col_name),
@@ -260,7 +266,8 @@ impl<'a> CalcNodeCtx<'a> {
                 let mut cols = Vec::<CalcNodeId>::new();
                 match self.get_calc_node(id) {
                     CalcNode::Table { name } => {
-                        let table = self.table_collection.get_table(name);
+                        let name = name.clone();
+                        let table = self.table_collection.get_table(&name).clone();
                         for col in table.col_iter() {
                             cols.push(self.get_table_col_node_id(id, &col.name));
                         }
@@ -559,7 +566,8 @@ impl<'a> CalcNodeCtx<'a> {
             None => {
                 let result = match self.get_calc_node(calc_node_id) {
                     CalcNode::Table { name } => {
-                        let table = self.table_collection.get_table(name);
+                        let name = name.clone();
+                        let table = self.table_collection.get_table(&name);
                         let len = table.get_n_rows();
                         let cols = table
                             .col_iter()

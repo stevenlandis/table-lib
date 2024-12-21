@@ -70,6 +70,42 @@ impl<'a> Parser<'a> {
         Some(AstNode::new(AstNodeType::Identifier(iden_str.to_string())))
     }
 
+    fn parse_table_name(&mut self) -> Option<AstNode> {
+        match self.peek(0) {
+            None => {
+                return None;
+            }
+            Some(c0) => {
+                if Parser::is_alpha_underscore(c0) {
+                    c0
+                } else {
+                    return None;
+                }
+            }
+        };
+
+        let mut idx: usize = 1;
+        loop {
+            match self.peek(idx) {
+                None => {
+                    break;
+                }
+                Some(cn) => {
+                    if !(Parser::is_alpha_underscore_numeric(cn) || cn == ('.' as u8)) {
+                        break;
+                    }
+                }
+            };
+            idx += 1;
+        }
+
+        let iden_str =
+            std::str::from_utf8(&self.text.as_bytes()[self.idx..self.idx + idx]).unwrap();
+
+        self.idx += idx;
+        Some(AstNode::new(AstNodeType::Identifier(iden_str.to_string())))
+    }
+
     fn parse_ws(&mut self) {
         loop {
             match self.peek(0) {
@@ -508,7 +544,7 @@ impl<'a> Parser<'a> {
                 return Some(Err(self.get_err(ParseErrorType::MissingSpaceAfterFrom)));
             }
 
-            match self.parse_identifier() {
+            match self.parse_table_name() {
                 None => Some(Err(self.get_err(ParseErrorType::NoTableNameInFromStatement))),
                 Some(identifier) => Some(Ok(AstNode::new(AstNodeType::FromStmt(identifier)))),
             }

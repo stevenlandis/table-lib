@@ -241,7 +241,7 @@ mod tests {
 
     #[test]
     fn query_scalar() {
-        let collection = TableCollection::new();
+        let mut collection = TableCollection::new();
         let result = collection.query("get 1.5, 1.5 + 2.5").unwrap();
 
         assert_eq!(

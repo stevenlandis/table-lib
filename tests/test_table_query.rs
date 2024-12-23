@@ -518,4 +518,90 @@ mod tests {
             )
         );
     }
+
+    #[test]
+    fn basic_limit() {
+        let table = Table::from_json_str(
+            r#"
+            {
+                "columns": [
+                    {
+                        "name": "id",
+                        "type": "text",
+                        "values": ["id0", "id1", "id2"]
+                    }
+                ]
+            }
+            "#,
+        );
+
+        let mut collection = TableCollection::new();
+        collection.add_table("tbl0", table);
+
+        let result = collection
+            .query(
+                r#"
+                from tbl0
+                limit 2
+                "#,
+            )
+            .unwrap();
+
+        assert_eq!(
+            result,
+            Table::from_json_str(
+                r#"{"columns":[
+                    {
+                        "name": "id",
+                        "type": "text",
+                        "values": ["id0", "id1"]
+                    }
+                ]}"#
+            )
+        );
+
+        let result = collection
+            .query(
+                r#"
+                from tbl0
+                limit 0
+                "#,
+            )
+            .unwrap();
+
+        assert_eq!(
+            result,
+            Table::from_json_str(
+                r#"{"columns":[
+                    {
+                        "name": "id",
+                        "type": "text",
+                        "values": []
+                    }
+                ]}"#
+            )
+        );
+
+        let result = collection
+            .query(
+                r#"
+                from tbl0
+                limit 9999999
+                "#,
+            )
+            .unwrap();
+
+        assert_eq!(
+            result,
+            Table::from_json_str(
+                r#"{"columns":[
+                    {
+                        "name": "id",
+                        "type": "text",
+                        "values": ["id0", "id1", "id2"]
+                    }
+                ]}"#
+            )
+        );
+    }
 }

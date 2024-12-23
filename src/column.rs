@@ -192,7 +192,7 @@ impl Column {
         // Intended for cases like
         // from tbl group by foo get bar + sum(bar)
         // to repeat sum(bar) so it matches bar
-        assert_eq!(partition.len(), target_partition.len());
+        assert_eq!(partition.n_spans(), target_partition.n_spans());
         let mut indexes = Vec::<usize>::new();
         for (span, target_span) in std::iter::zip(partition, target_partition) {
             assert_eq!(span.len(), 1);
@@ -348,6 +348,49 @@ impl Column {
         }
 
         result
+    }
+
+    pub fn limit(&self, limit: usize, partition: &Partition) -> Column {
+        let mut nulls = BitVec::new();
+        let values = match &self.col.values {
+            ColumnValues::Text(inner_col) => {
+                let mut values = StringVec::new();
+                for span in partition {
+                    for row_idx in span.iter().take(limit).cloned() {
+                        nulls.push(self.col.nulls.at(row_idx));
+                        values.push(inner_col.get_str_at_idx(row_idx));
+                    }
+                }
+
+                ColumnValues::Text(TextColumnValues { values })
+            }
+            ColumnValues::Float64(inner_col) => {
+                let mut values = Vec::<f64>::new();
+                for span in partition {
+                    for row_idx in span.iter().take(limit).cloned() {
+                        nulls.push(self.col.nulls.at(row_idx));
+                        values.push(inner_col.values[row_idx]);
+                    }
+                }
+
+                ColumnValues::Float64(Float64ColumnValues { values })
+            }
+            ColumnValues::Bool(inner_col) => {
+                let mut values = BitVec::new();
+                for span in partition {
+                    for row_idx in span.iter().take(limit).cloned() {
+                        nulls.push(self.col.nulls.at(row_idx));
+                        values.push(inner_col.values.at(row_idx));
+                    }
+                }
+
+                ColumnValues::Bool(BoolColumnValues { values })
+            }
+        };
+
+        Column {
+            col: Rc::new(InnerColumn { nulls, values }),
+        }
     }
 }
 
@@ -693,7 +736,7 @@ impl InnerColumn {
             AggregationType::Sum => match &self.values {
                 ColumnValues::Float64(values) => {
                     let mut out_nulls = BitVec::new();
-                    let mut out_values = Vec::<f64>::with_capacity(partition.len());
+                    let mut out_values = Vec::<f64>::with_capacity(partition.n_spans());
                     for span in partition {
                         let mut has_non_null = false;
                         let mut val: f64 = 0.0;
@@ -719,7 +762,7 @@ impl InnerColumn {
             AggregationType::First => match &self.values {
                 ColumnValues::Float64(values) => {
                     let mut out_nulls = BitVec::new();
-                    let mut out_values = Vec::<f64>::with_capacity(partition.len());
+                    let mut out_values = Vec::<f64>::with_capacity(partition.n_spans());
                     for span in partition {
                         let first_row_idx = *span.iter().nth(0).unwrap();
                         out_nulls.push(self.nulls.at(first_row_idx));
@@ -732,7 +775,7 @@ impl InnerColumn {
                     }
                 }
                 ColumnValues::Text(values) => {
-                    let mut builder = TextColBuilder::new(partition.len());
+                    let mut builder = TextColBuilder::new(partition.n_spans());
 
                     for span in partition {
                         let first_row_idx = *span.iter().nth(0).unwrap();

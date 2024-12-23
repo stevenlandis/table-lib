@@ -45,7 +45,7 @@ impl Partition {
         }
     }
 
-    pub fn len(&self) -> usize {
+    pub fn n_spans(&self) -> usize {
         self.rc.len()
     }
 
@@ -112,6 +112,25 @@ impl Partition {
 
     pub fn iter(&self) -> PartitionIter {
         self.into_iter()
+    }
+
+    pub fn limit(&self, limit: usize) -> Partition {
+        let mut n_rows: usize = 0;
+        let mut spans = Vec::<Span>::with_capacity(self.rc.spans.len());
+        for span in &self.rc.spans {
+            let len = span.len.min(limit);
+            spans.push(Span { start: n_rows, len });
+            n_rows += len;
+        }
+
+        let mut row_indexes = Vec::<usize>::with_capacity(n_rows);
+        for span in self {
+            row_indexes.extend(span.iter().take(limit));
+        }
+
+        Partition {
+            rc: Rc::new(InnerPartition { spans, row_indexes }),
+        }
     }
 }
 

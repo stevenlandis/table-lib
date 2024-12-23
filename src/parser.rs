@@ -696,6 +696,14 @@ impl<'a> Parser<'a> {
             };
 
             Some(Ok(AstNode::new(AstNodeType::OrderBy(orders))))
+        } else if self.parse_str_literal_word("limit") {
+            self.parse_ws();
+            let limit = match self.parse_integer() {
+                None => return Some(Err(self.get_err(ParseErrorType::MissingLimit))),
+                Some(limit) => limit,
+            };
+
+            Some(Ok(AstNode::new(AstNodeType::Limit(limit as usize))))
         } else {
             None
         }
@@ -1084,4 +1092,5 @@ enum ParseErrorType {
     MissingFractionPartInFloatLiteral,
     MissingSortFieldName,
     MissingSortField,
+    MissingLimit,
 }

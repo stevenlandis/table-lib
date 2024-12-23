@@ -197,6 +197,9 @@ impl<'a> CalcNodeCtx<'a> {
                         orders_id: _,
                         directions: _,
                     } => self.get_calc_node_name2(*source_id, col_idx).to_string(),
+                    CalcNode::Limit(source_id, _) => {
+                        self.get_calc_node_name2(*source_id, col_idx).to_string()
+                    }
                 };
                 self.name_cache2.insert(key, name);
             }
@@ -306,6 +309,16 @@ impl<'a> CalcNodeCtx<'a> {
                         orders_id: _,
                         directions: _,
                     } => {
+                        let n_cols = self.get_calc_node_cols(*source_id).len();
+
+                        cols.extend((0..n_cols).map(|col_idx| {
+                            self.add_calc_node(CalcNode::FieldSelect {
+                                source_id: id,
+                                col_idx,
+                            })
+                        }));
+                    }
+                    CalcNode::Limit(source_id, _) => {
                         let n_cols = self.get_calc_node_cols(*source_id).len();
 
                         cols.extend((0..n_cols).map(|col_idx| {
@@ -534,6 +547,7 @@ impl<'a> CalcNodeCtx<'a> {
                     directions,
                 })
             }
+            AstNodeType::Limit(limit) => self.add_calc_node(CalcNode::Limit(ctx.parent_id, *limit)),
             _ => todo!("Unknown type {:?}", node),
         }
     }
@@ -832,6 +846,23 @@ impl<'a> CalcNodeCtx<'a> {
                             is_scalar: false,
                         }
                     }
+                    CalcNode::Limit(source_id, limit) => {
+                        let source_id = *source_id;
+                        let limit = *limit;
+                        let source_result = self.eval_calc_node(source_id);
+
+                        let result_cols = source_result
+                            .cols
+                            .iter()
+                            .map(|col| col.limit(limit, &source_result.partition))
+                            .collect::<Vec<_>>();
+
+                        CalcResult2 {
+                            cols: result_cols,
+                            partition: source_result.partition.limit(limit),
+                            is_scalar: false,
+                        }
+                    }
                 };
                 self.result_cache.insert(calc_node_id, result);
             }
@@ -906,6 +937,7 @@ enum CalcNode {
         orders_id: CalcNodeId,
         directions: Vec<SortOrderDirection>,
     },
+    Limit(CalcNodeId, usize),
 }
 
 type CalcNodeId = usize;

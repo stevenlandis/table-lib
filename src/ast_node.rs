@@ -29,6 +29,7 @@ pub enum AstNodeType {
         get_expr: AstNode,
     },
     OrderBy(AstNode),
+    Limit(usize),
     SortFieldWithDirection(AstNode, SortOrderDirection),
     Null,
     // SubString(String),

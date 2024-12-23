@@ -129,6 +129,22 @@ impl Column {
         }
     }
 
+    pub fn aggregate_count(partition: &Partition) -> Column {
+        // Since COUNT() doesn't need a column, this aggregation is a
+        // static method
+        let counts = partition
+            .iter()
+            .map(|span| span.len() as f64)
+            .collect::<Vec<_>>();
+
+        Column {
+            col: Rc::new(InnerColumn {
+                nulls: BitVec::from_repeated_value(false, counts.len()),
+                values: ColumnValues::Float64(Float64ColumnValues { values: counts }),
+            }),
+        }
+    }
+
     pub fn is_equal_at_index(&self, other: &Self, left_idx: usize, right_idx: usize) -> bool {
         self.col.is_equal_at_index(&other.col, left_idx, right_idx)
     }
@@ -254,12 +270,22 @@ impl PartialEq for Column {
     }
 }
 
-impl std::ops::Add for Column {
+impl std::ops::Add for &Column {
     type Output = Column;
 
     fn add(self, rhs: Self) -> Self::Output {
         Column {
             col: Rc::new(self.col.add(&rhs.col)),
+        }
+    }
+}
+
+impl std::ops::Div for &Column {
+    type Output = Column;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        Column {
+            col: Rc::new(self.col.div(&rhs.col)),
         }
     }
 }
@@ -840,6 +866,39 @@ impl InnerColumn {
                 panic!("unsupported");
             }
         };
+    }
+
+    pub fn div(&self, other: &InnerColumn) -> InnerColumn {
+        assert_eq!(self.len(), other.len());
+        match &self.values {
+            ColumnValues::Float64(inner_col) => match &other.values {
+                ColumnValues::Float64(other_inner_col) => {
+                    let mut nulls = BitVec::with_capacity(self.len());
+                    let mut values = Vec::<f64>::with_capacity(self.len());
+
+                    for ((left_null, left_val), (right_null, right_val)) in zip(
+                        zip(&self.nulls, inner_col.values.iter().cloned()),
+                        zip(&other.nulls, other_inner_col.values.iter().cloned()),
+                    ) {
+                        let is_null = left_null || right_null || right_val == 0.0;
+                        let value = if is_null { 0.0 } else { left_val / right_val };
+                        nulls.push(is_null);
+                        values.push(value);
+                    }
+
+                    InnerColumn {
+                        nulls,
+                        values: ColumnValues::Float64(Float64ColumnValues { values }),
+                    }
+                }
+                _ => {
+                    panic!("unsupported");
+                }
+            },
+            _ => {
+                panic!("unsupported");
+            }
+        }
     }
 
     pub fn add_f64(&self, val: f64) -> InnerColumn {

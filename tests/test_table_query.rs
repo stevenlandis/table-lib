@@ -191,7 +191,7 @@ mod tests {
                         "values": ["x", "y", "x", "z"]
                     },
                     {
-                        "name": "value",
+                        "name": "sum(value)",
                         "type": "float64",
                         "values": ["5", "2", "11", "7"]
                     }
@@ -332,6 +332,65 @@ mod tests {
                         "name": "sum(val0)",
                         "type": "float64",
                         "values": ["3"]
+                    }
+                ]}"#
+            )
+        );
+    }
+
+    #[test]
+    fn test_sum_of_average() {
+        let table = Table::from_json_str(
+            r#"
+            {
+                "columns": [
+                    {
+                        "name": "col0",
+                        "type": "text",
+                        "values": ["A", "A", "A", "B", "B", "C"]
+                    },
+                    {
+                        "name": "col1",
+                        "type": "text",
+                        "values": ["x", "x", "y", "x", "x", "z"]
+                    },
+                    {
+                        "name": "val0",
+                        "type": "float64",
+                        "values": ["1", "3", "4", "5", "7", "8"]
+                    }
+                ]
+            }
+            "#,
+        );
+
+        let mut collection = TableCollection::new();
+        collection.add_table("tbl0", table);
+        let result = collection
+            .query(
+                r#"
+                from tbl0
+                group by col0 get (
+                    group by col1 get avg(val0) as val0
+                    get sum(val0)
+                )
+                "#,
+            )
+            .unwrap();
+
+        assert_eq!(
+            result,
+            Table::from_json_str(
+                r#"{"columns":[
+                    {
+                        "name": "col0",
+                        "type": "text",
+                        "values": ["A", "B", "C"]
+                    },
+                    {
+                        "name": "sum(val0)",
+                        "type": "float64",
+                        "values": ["6", "6", "8"]
                     }
                 ]}"#
             )

@@ -15,7 +15,7 @@ pub fn run_repl() {
         stdin.read_line(&mut buffer).unwrap();
 
         let result = table_collection.query(&buffer).unwrap();
-        result.write(&mut stdout).unwrap();
+        write!(&mut stdout, "{}", result).unwrap();
         stdout.flush().unwrap();
     }
 }

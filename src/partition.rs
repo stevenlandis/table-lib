@@ -16,6 +16,18 @@ impl core::fmt::Debug for Partition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("<Partition ")?;
         self.rc.len().fmt(f)?;
+
+        for span in self {
+            f.write_str(" (")?;
+            for (idx, row_idx) in span.iter().cloned().enumerate() {
+                if idx > 0 {
+                    f.write_str(",")?;
+                }
+                row_idx.fmt(f)?;
+            }
+            f.write_str(")")?;
+        }
+
         f.write_str(">")?;
 
         Ok(())
@@ -84,6 +96,10 @@ impl Partition {
         }
 
         result.to_partition()
+    }
+
+    pub fn iter(&self) -> PartitionIter {
+        self.into_iter()
     }
 }
 

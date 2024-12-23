@@ -745,8 +745,10 @@ impl Table {
             ),
         )
     }
+}
 
-    pub fn write(&self, out: &mut impl std::io::Write) -> std::io::Result<()> {
+impl std::fmt::Display for Table {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         /*
         -------------------
         | col_0 | col_1   |
@@ -756,11 +758,11 @@ impl Table {
         -------------------
         */
 
-        fn wstr(out: &mut impl std::io::Write, str: &str) -> std::io::Result<()> {
-            out.write_all(str.as_bytes())
+        fn wstr(out: &mut std::fmt::Formatter, str: &str) -> std::fmt::Result {
+            out.write_str(str)
         }
 
-        fn wpad(out: &mut impl std::io::Write, str: &str, width: usize) -> std::io::Result<()> {
+        fn wpad(out: &mut std::fmt::Formatter, str: &str, width: usize) -> std::fmt::Result {
             wstr(out, str)?;
             for _ in 0..(width - str.len()) {
                 wstr(out, " ")?;
@@ -807,6 +809,8 @@ impl Table {
         for col_idx in 0..n_cols {
             if col_idx == 0 {
                 wstr(out, "| ")?;
+            } else {
+                wstr(out, " ")?;
             }
             let width = col_widths[col_idx];
             wpad(out, &col_names[col_idx], width)?;
@@ -816,6 +820,8 @@ impl Table {
         for col_idx in 0..n_cols {
             if col_idx == 0 {
                 wstr(out, "| ")?;
+            } else {
+                wstr(out, " ")?;
             }
             let width = col_widths[col_idx];
             wpad(out, &col_types[col_idx], width)?;
@@ -838,6 +844,8 @@ impl Table {
             for col_idx in 0..n_cols {
                 if col_idx == 0 {
                     wstr(out, "| ")?;
+                } else {
+                    wstr(out, " ")?;
                 }
                 let width = col_widths[col_idx];
                 wpad(out, &out_cols[col_idx][row_idx], width)?;

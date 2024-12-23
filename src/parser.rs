@@ -843,7 +843,7 @@ impl<'a> Parser<'a> {
 
     fn parse_base_expr(&mut self) -> Option<Result<AstNode, ParseError>> {
         if self.parse_str_literal("(") {
-            let expr = match self.parse_expr() {
+            let expr = match self.parse_query() {
                 None => return Some(Err(self.get_err(ParseErrorType::NoParenContents))),
                 Some(expr) => match expr {
                     Err(err) => {

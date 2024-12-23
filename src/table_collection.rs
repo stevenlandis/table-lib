@@ -70,6 +70,8 @@ impl TableCollection {
             }),
         );
 
+        // calc_ctx.print_debug();
+
         Ok(table)
     }
 }
@@ -127,7 +129,10 @@ impl<'a> CalcNodeCtx<'a> {
         match self.name_cache2.get(&key) {
             None => {
                 let name = match self.get_calc_node(id) {
-                    CalcNode::FieldSelect { table_id, col_idx } => {
+                    CalcNode::FieldSelect {
+                        source_id: table_id,
+                        col_idx,
+                    } => {
                         let table_id = *table_id;
                         let col_idx = *col_idx;
                         self.get_calc_node_name2(table_id, col_idx).to_string()
@@ -158,18 +163,9 @@ impl<'a> CalcNodeCtx<'a> {
                     } => self.get_calc_node_name2(*source_id, col_idx).to_string(),
                     CalcNode::GroupBy {
                         source_id: _,
-                        partition_id,
+                        partition_id: _,
                         get_id,
-                    } => {
-                        let partition_id = *partition_id;
-                        let get_id = *get_id;
-                        let mut inner_col_ids = Vec::<usize>::new();
-                        inner_col_ids.extend(self.get_calc_node_cols(partition_id));
-                        inner_col_ids.extend(self.get_calc_node_cols(get_id));
-
-                        self.get_calc_node_name2(inner_col_ids[col_idx], 0)
-                            .to_string()
-                    }
+                    } => self.get_calc_node_name2(*get_id, col_idx).to_string(),
                     CalcNode::GroupByPartition {
                         source_id,
                         group_by_fields_id: _,
@@ -190,6 +186,9 @@ impl<'a> CalcNodeCtx<'a> {
 
                         result
                     }
+                    CalcNode::GroupByGroupFields { group_by_id } => {
+                        self.get_calc_node_name2(*group_by_id, col_idx).to_string()
+                    }
                     CalcNode::Integer(val) => val.to_string(),
                     CalcNode::Float64(val) => val.to_string(),
                     CalcNode::Alias(_, name) => name.clone(),
@@ -203,41 +202,6 @@ impl<'a> CalcNodeCtx<'a> {
         &self.name_cache2[&key]
     }
 
-    // fn get_calc_node_name(&mut self, id: CalcNodeId) -> &str {
-    //     match self.name_cache.get(&id) {
-    //         None => {
-    //             let name = match self.get_calc_node(id) {
-    //                 CalcNode::FieldSelect { table_id, col_idx } => {
-    //                     let table_id = *table_id;
-    //                     let col_idx = *col_idx;
-    //                     let col_id = self.get_calc_node_cols(table_id)[col_idx];
-    //                     self.get_calc_node_name(col_id).to_string()
-    //                 }
-    //                 CalcNode::FcnCall { name, args } => {
-    //                     let mut result = String::new();
-    //                     result.push_str(&name);
-    //                     result.push_str("(");
-    //                     let args = args.clone();
-    //                     for (idx, arg) in args.iter().enumerate() {
-    //                         if idx > 0 {
-    //                             result.push_str(", ");
-    //                         }
-    //                         result.push_str(self.get_calc_node_name(*arg));
-    //                     }
-    //                     result.push_str(")");
-
-    //                     result
-    //                 }
-    //                 _ => todo!("{:?}", self.get_calc_node(id)),
-    //             };
-    //             self.name_cache.insert(id, name);
-    //         }
-    //         _ => {}
-    //     }
-
-    //     self.name_cache[&id].as_str()
-    // }
-
     fn get_table_col_node_id(&mut self, table_id: CalcNodeId, col_name: &str) -> CalcNodeId {
         let table_name = match self.get_calc_node(table_id) {
             CalcNode::Table { name } => name.clone(),
@@ -249,7 +213,7 @@ impl<'a> CalcNodeCtx<'a> {
             None => {
                 let table = self.table_collection.get_table(&table_name).clone();
                 let new_id = self.add_calc_node(CalcNode::FieldSelect {
-                    table_id: table_id,
+                    source_id: table_id,
                     col_idx: table.get_col_idx(col_name),
                 });
                 self.table_col_node_cache.insert(key.clone(), new_id);
@@ -273,7 +237,7 @@ impl<'a> CalcNodeCtx<'a> {
                         }
                     }
                     CalcNode::FieldSelect {
-                        table_id: _,
+                        source_id: _,
                         col_idx: _,
                     } => {
                         cols.push(id);
@@ -292,18 +256,7 @@ impl<'a> CalcNodeCtx<'a> {
                         get_id,
                     } => {
                         let get_id = *get_id;
-                        let get_idx = self
-                            .get_calc_node_cols(get_id)
-                            .iter()
-                            .cloned()
-                            .collect::<Vec<_>>();
-
-                        for (col_idx, _) in get_idx.iter().cloned().enumerate() {
-                            cols.push(self.add_calc_node(CalcNode::FieldSelect {
-                                table_id: id,
-                                col_idx,
-                            }));
-                        }
+                        cols.extend(self.get_calc_node_cols(get_id));
                     }
                     CalcNode::Where {
                         source_id,
@@ -315,29 +268,19 @@ impl<'a> CalcNodeCtx<'a> {
                         source_id,
                         group_by_fields_id: _,
                     } => {
-                        let source_id = *source_id;
-
-                        let col_ids = self
-                            .get_calc_node_cols(source_id)
-                            .iter()
-                            .cloned()
-                            .collect::<Vec<_>>();
-
-                        cols.extend((0..col_ids.len()).map(|col_idx| {
+                        let n_cols = self.get_calc_node_cols(*source_id).len();
+                        cols.extend((0..n_cols).map(|col_idx| {
                             self.add_calc_node(CalcNode::FieldSelect {
-                                table_id: id,
+                                source_id: id,
                                 col_idx,
                             })
                         }));
                     }
-                    CalcNode::GroupByGroupFields {
-                        // source_id: _,
-                        group_by_id,
-                    } => {
+                    CalcNode::GroupByGroupFields { group_by_id } => {
                         let n_cols = self.get_calc_node_cols(*group_by_id).len();
                         cols.extend((0..n_cols).map(|col_idx| {
                             self.add_calc_node(CalcNode::FieldSelect {
-                                table_id: id,
+                                source_id: id,
                                 col_idx,
                             })
                         }));
@@ -448,7 +391,7 @@ impl<'a> CalcNodeCtx<'a> {
                 let col_idx = self.get_calc_node_col_idx(ctx.parent_id, col_name);
 
                 self.add_calc_node(CalcNode::FieldSelect {
-                    table_id: ctx.parent_id,
+                    source_id: ctx.parent_id,
                     col_idx,
                 })
             }
@@ -481,10 +424,14 @@ impl<'a> CalcNodeCtx<'a> {
                     .cloned()
                     .collect::<Vec<_>>();
                 let group_by_first_col_ids = group_by_col_ids.iter().cloned().map(|col_id| {
-                    self.add_calc_node(CalcNode::FcnCall {
+                    let fcn_call_id = self.add_calc_node(CalcNode::FcnCall {
                         name: "first".to_string(),
                         args: vec![col_id],
-                    })
+                    });
+
+                    let col_name = self.get_calc_node_name2(col_id, 0).to_string();
+
+                    self.add_calc_node(CalcNode::Alias(fcn_call_id, col_name))
                 });
                 get_ids.extend(group_by_first_col_ids);
 
@@ -580,7 +527,10 @@ impl<'a> CalcNodeCtx<'a> {
                             is_scalar: false,
                         }
                     }
-                    CalcNode::FieldSelect { table_id, col_idx } => {
+                    CalcNode::FieldSelect {
+                        source_id: table_id,
+                        col_idx,
+                    } => {
                         let table_id = *table_id;
                         let col_idx = *col_idx;
                         let result = self.eval_calc_node(table_id);
@@ -659,7 +609,30 @@ impl<'a> CalcNodeCtx<'a> {
                                 is_scalar: false,
                             }
                         }
-                        _ => todo!(),
+                        "avg" => {
+                            assert_eq!(args.len(), 1);
+                            let val = self.eval_calc_node(args[0]);
+
+                            let counts = Column::aggregate_count(&val.partition);
+
+                            let cols = val
+                                .cols
+                                .iter()
+                                .map(|col| {
+                                    let sum = col
+                                        .aggregate_partition(&val.partition, &AggregationType::Sum);
+                                    let avg = &sum / &counts;
+                                    avg
+                                })
+                                .collect::<Vec<_>>();
+
+                            CalcResult2 {
+                                cols,
+                                partition: val.partition.get_single_value_partition(),
+                                is_scalar: false,
+                            }
+                        }
+                        _ => todo!("Fcn is not implemented: {}", name),
                     },
                     CalcNode::Selects { col_ids } => {
                         let col_ids = col_ids.clone();
@@ -772,7 +745,7 @@ impl<'a> CalcNodeCtx<'a> {
                         }
 
                         CalcResult2 {
-                            cols: vec![left_col + right_col],
+                            cols: vec![&left_col + &right_col],
                             partition: left_partition,
                             is_scalar: left_is_scalar && right_is_scalar,
                         }
@@ -796,12 +769,32 @@ impl<'a> CalcNodeCtx<'a> {
 
         &self.result_cache[&calc_node_id]
     }
+
+    fn print_debug(&mut self) {
+        for calc_node_id in 0..self.calc_nodes.len() {
+            let calc_node = &self.calc_nodes[calc_node_id];
+            println!("{}: {:?}", calc_node_id, calc_node);
+            let col_ids = self
+                .get_calc_node_cols(calc_node_id)
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>();
+
+            for (col_idx, col_id) in col_ids.iter().cloned().enumerate() {
+                println!(
+                    "  - {}: {}",
+                    col_id,
+                    self.get_calc_node_name2(calc_node_id, col_idx)
+                );
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
 enum CalcNode {
     FieldSelect {
-        table_id: CalcNodeId,
+        source_id: CalcNodeId,
         col_idx: usize,
     },
     Where {

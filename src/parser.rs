@@ -660,17 +660,31 @@ impl<'a> Parser<'a> {
 
             loop {
                 self.parse_ws();
-                let field_name = match self.parse_identifier() {
+                let mut sort_field = match self.parse_identifier() {
                     None => return Some(Err(self.get_err(ParseErrorType::MissingSortFieldName))),
                     Some(name) => name,
                 };
 
+                self.parse_ws();
+                if self.parse_str_literal_word("asc") {
+                    sort_field = AstNode::new(AstNodeType::SortFieldWithDirection(
+                        sort_field,
+                        crate::SortOrderDirection::Ascending,
+                    ));
+                    self.parse_ws();
+                } else if self.parse_str_literal_word("desc") {
+                    sort_field = AstNode::new(AstNodeType::SortFieldWithDirection(
+                        sort_field,
+                        crate::SortOrderDirection::Descending,
+                    ));
+                    self.parse_ws();
+                }
+
                 orders = match orders {
-                    None => Some(field_name),
-                    Some(orders) => Some(AstNode::new(AstNodeType::ListNode(orders, field_name))),
+                    None => Some(sort_field),
+                    Some(orders) => Some(AstNode::new(AstNodeType::ListNode(orders, sort_field))),
                 };
 
-                self.parse_ws();
                 if !self.parse_str_literal(",") {
                     break;
                 }

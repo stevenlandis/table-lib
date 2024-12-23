@@ -1,5 +1,7 @@
 use std::rc::Rc;
 
+use crate::SortOrderDirection;
+
 #[derive(Clone)]
 pub struct AstNode {
     inner_val: Rc<InnerVal>,
@@ -27,6 +29,7 @@ pub enum AstNodeType {
         get_expr: AstNode,
     },
     OrderBy(AstNode),
+    SortFieldWithDirection(AstNode, SortOrderDirection),
     Null,
     // SubString(String),
     Identifier(String),

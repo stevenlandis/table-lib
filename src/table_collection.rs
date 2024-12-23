@@ -512,8 +512,16 @@ impl<'a> CalcNodeCtx<'a> {
                 let mut order_col_ids = Vec::<usize>::new();
                 let mut directions = Vec::<SortOrderDirection>::new();
                 for node in orders.iter_list() {
-                    order_col_ids.push(self.register_ast_node(ctx, node));
-                    directions.push(SortOrderDirection::Ascending);
+                    match node.get_type() {
+                        AstNodeType::SortFieldWithDirection(sort_field, direction) => {
+                            order_col_ids.push(self.register_ast_node(ctx, sort_field));
+                            directions.push(*direction);
+                        }
+                        _ => {
+                            order_col_ids.push(self.register_ast_node(ctx, node));
+                            directions.push(SortOrderDirection::Ascending);
+                        }
+                    }
                 }
 
                 let orders_id = self.add_calc_node(CalcNode::Selects {

@@ -841,7 +841,7 @@ impl<'a> CalcNodeCtx<'a> {
         &self.result_cache[&calc_node_id]
     }
 
-    fn print_debug(&mut self) {
+    fn _print_debug(&mut self) {
         for calc_node_id in 0..self.calc_nodes.len() {
             let calc_node = &self.calc_nodes[calc_node_id];
             println!("{}: {:?}", calc_node_id, calc_node);

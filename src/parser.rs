@@ -1082,7 +1082,6 @@ enum ParseErrorType {
     NoClosingParen,
     NoClosingParenFcnCall,
     MissingFractionPartInFloatLiteral,
-    MissingSpaceAfterOrder,
     MissingSortFieldName,
     MissingSortField,
 }

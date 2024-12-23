@@ -396,4 +396,79 @@ mod tests {
             )
         );
     }
+
+    #[test]
+    fn basic_sort() {
+        let table = Table::from_json_str(
+            r#"
+            {
+                "columns": [
+                    {
+                        "name": "id",
+                        "type": "text",
+                        "values": ["id0", "id1", "id2", "id3", "id4"]
+                    },
+                    {
+                        "name": "col0",
+                        "type": "float64",
+                        "values": ["3", "1", "3", "2", "0"]
+                    },
+                    {
+                        "name": "col1",
+                        "type": "float64",
+                        "values": ["5", "4", "3", "2", "1"]
+                    }
+                ]
+            }
+            "#,
+        );
+
+        let mut collection = TableCollection::new();
+        collection.add_table("tbl0", table);
+        let result = collection
+            .query(
+                r#"
+                from tbl0
+                order by col0
+                get id
+                "#,
+            )
+            .unwrap();
+
+        assert_eq!(
+            result,
+            Table::from_json_str(
+                r#"{"columns":[
+                    {
+                        "name": "id",
+                        "type": "text",
+                        "values": ["id4", "id1", "id3", "id0", "id2"]
+                    }
+                ]}"#
+            )
+        );
+
+        let result = collection
+            .query(
+                r#"
+                from tbl0
+                order by col0, col1
+                get id
+                "#,
+            )
+            .unwrap();
+
+        assert_eq!(
+            result,
+            Table::from_json_str(
+                r#"{"columns":[
+                    {
+                        "name": "id",
+                        "type": "text",
+                        "values": ["id4", "id1", "id3", "id2", "id0"]
+                    }
+                ]}"#
+            )
+        );
+    }
 }

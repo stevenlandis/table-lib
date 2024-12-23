@@ -2,6 +2,7 @@ use std::rc::Rc;
 
 use crate::bit_vec::BitVec;
 
+#[derive(Clone)]
 struct Span {
     start: usize,
     len: usize,
@@ -51,6 +52,17 @@ impl Partition {
     pub fn filter_indexes(&self, row_indexes: &[usize]) -> Partition {
         Partition {
             rc: Rc::new(self.rc.filter_indexes(row_indexes)),
+        }
+    }
+
+    /// Returns the reset row indexes of this [`Partition`].
+    /// This just replaces row indexes with ascending integers.
+    pub fn reset_row_indexes(&self) -> Partition {
+        Partition {
+            rc: Rc::new(InnerPartition {
+                spans: self.rc.spans.clone(),
+                row_indexes: (0..self.rc.row_indexes.len()).collect(),
+            }),
         }
     }
 
@@ -118,7 +130,7 @@ impl InnerPartition {
         for idx in row_indexes {
             valid_indexes.set(*idx, true);
         }
-        let mut new_spans = Vec::<Span>::new();
+        let mut new_spans = Vec::<Span>::with_capacity(self.spans.len());
         let mut new_row_indexes = Vec::<usize>::with_capacity(row_indexes.len());
         for span in &self.spans {
             let new_start = new_row_indexes.len();

@@ -5,7 +5,7 @@ use crate::{
     ast_node::{AstNode, AstNodeType},
     parser::{ParseError, Parser},
     partition::Partition,
-    AggregationType, Column, Table, TableColumnWrapper,
+    AggregationType, Column, SortOrderDirection, Table, TableColumnWrapper,
 };
 
 pub struct TableCollection {
@@ -192,7 +192,11 @@ impl<'a> CalcNodeCtx<'a> {
                     CalcNode::Integer(val) => val.to_string(),
                     CalcNode::Float64(val) => val.to_string(),
                     CalcNode::Alias(_, name) => name.clone(),
-                    _ => todo!("{:?}", self.get_calc_node(id)),
+                    CalcNode::OrderBy {
+                        source_id,
+                        orders_id: _,
+                        directions: _,
+                    } => self.get_calc_node_name2(*source_id, col_idx).to_string(),
                 };
                 self.name_cache2.insert(key, name);
             }
@@ -296,6 +300,20 @@ impl<'a> CalcNodeCtx<'a> {
                     }
                     CalcNode::Alias(_, _) => {
                         cols.push(id);
+                    }
+                    CalcNode::OrderBy {
+                        source_id,
+                        orders_id: _,
+                        directions: _,
+                    } => {
+                        let n_cols = self.get_calc_node_cols(*source_id).len();
+
+                        cols.extend((0..n_cols).map(|col_idx| {
+                            self.add_calc_node(CalcNode::FieldSelect {
+                                source_id: id,
+                                col_idx,
+                            })
+                        }));
                     }
                 };
 
@@ -489,6 +507,24 @@ impl<'a> CalcNodeCtx<'a> {
                 };
 
                 self.add_calc_node(CalcNode::Alias(expr_id, alias_name))
+            }
+            AstNodeType::OrderBy(orders) => {
+                let mut order_col_ids = Vec::<usize>::new();
+                let mut directions = Vec::<SortOrderDirection>::new();
+                for node in orders.iter_list() {
+                    order_col_ids.push(self.register_ast_node(ctx, node));
+                    directions.push(SortOrderDirection::Ascending);
+                }
+
+                let orders_id = self.add_calc_node(CalcNode::Selects {
+                    col_ids: order_col_ids,
+                });
+
+                self.add_calc_node(CalcNode::OrderBy {
+                    source_id: ctx.parent_id,
+                    orders_id,
+                    directions,
+                })
             }
             _ => todo!("Unknown type {:?}", node),
         }
@@ -698,9 +734,6 @@ impl<'a> CalcNodeCtx<'a> {
                         let partition = self.eval_calc_node(group_by_fields_id).partition.clone();
                         let source_result = self.eval_calc_node(source_id);
 
-                        // let result = self.eval_calc_node(group_by_id);
-                        // let partition = Column::group_by(&result.cols, &result.partition);
-
                         CalcResult2 {
                             cols: source_result.cols.clone(),
                             partition,
@@ -761,6 +794,36 @@ impl<'a> CalcNodeCtx<'a> {
                         is_scalar: true,
                     },
                     CalcNode::Alias(col_id, _) => self.eval_calc_node(*col_id).clone(),
+                    CalcNode::OrderBy {
+                        source_id,
+                        orders_id,
+                        directions,
+                    } => {
+                        let source_id = *source_id;
+                        let orders_id = *orders_id;
+                        let directions = directions.clone();
+                        let source = self.eval_calc_node(source_id).clone();
+
+                        let orders_result = self.eval_calc_node(orders_id).clone();
+
+                        let sort_indexes = Column::get_sorted_indexes(
+                            &orders_result.cols,
+                            &directions,
+                            source.cols[0].len(),
+                            &source.partition,
+                        );
+                        let result_cols = source
+                            .cols
+                            .iter()
+                            .map(|col| col.from_indexes(&sort_indexes))
+                            .collect::<Vec<_>>();
+
+                        CalcResult2 {
+                            cols: result_cols,
+                            partition: source.partition.reset_row_indexes(),
+                            is_scalar: false,
+                        }
+                    }
                 };
                 self.result_cache.insert(calc_node_id, result);
             }
@@ -830,6 +893,11 @@ enum CalcNode {
     Integer(u64),
     Float64(f64),
     Alias(CalcNodeId, String),
+    OrderBy {
+        source_id: CalcNodeId,
+        orders_id: CalcNodeId,
+        directions: Vec<SortOrderDirection>,
+    },
 }
 
 type CalcNodeId = usize;

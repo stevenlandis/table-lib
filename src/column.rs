@@ -262,6 +262,99 @@ impl Column {
 
         result
     }
+
+    fn cmp_indexes(&self, idx0: usize, idx1: usize) -> std::cmp::Ordering {
+        match &self.col.values {
+            ColumnValues::Text(values) => {
+                values.get_str_at_idx(idx0).cmp(values.get_str_at_idx(idx1))
+            }
+            ColumnValues::Float64(values) => values.values[idx0].total_cmp(&values.values[idx1]),
+            ColumnValues::Bool(values) => values.values.at(idx0).cmp(&values.values.at(idx1)),
+        }
+    }
+
+    pub fn get_sorted_indexes(
+        cols: &[Column],
+        directions: &[SortOrderDirection],
+        n_rows: usize,
+        partition: &Partition,
+    ) -> Vec<usize> {
+        assert!(cols.len() >= 1);
+
+        struct SortKey<'a> {
+            row_idx: usize,
+            cols: &'a [Column],
+            directions: &'a [SortOrderDirection],
+        }
+
+        impl<'a> SortKey<'a> {
+            fn base_cmp(&self, other: &Self) -> std::cmp::Ordering {
+                for (col, direction) in zip(self.cols, self.directions) {
+                    let order = col.cmp_indexes(self.row_idx, other.row_idx);
+                    match order {
+                        std::cmp::Ordering::Equal => {}
+                        std::cmp::Ordering::Less => {
+                            return match direction {
+                                SortOrderDirection::Ascending => std::cmp::Ordering::Less,
+                                SortOrderDirection::Descending => std::cmp::Ordering::Greater,
+                            }
+                        }
+                        std::cmp::Ordering::Greater => {
+                            return match direction {
+                                SortOrderDirection::Ascending => std::cmp::Ordering::Greater,
+                                SortOrderDirection::Descending => std::cmp::Ordering::Less,
+                            }
+                        }
+                    }
+                }
+
+                std::cmp::Ordering::Equal
+            }
+        }
+
+        impl<'a> PartialEq for SortKey<'a> {
+            fn eq(&self, other: &Self) -> bool {
+                self.base_cmp(other) == std::cmp::Ordering::Equal
+            }
+        }
+
+        impl<'a> Eq for SortKey<'a> {}
+
+        impl<'a> PartialOrd for SortKey<'a> {
+            fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+                Some(self.base_cmp(other))
+            }
+        }
+
+        impl<'a> Ord for SortKey<'a> {
+            fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+                self.base_cmp(other)
+            }
+        }
+
+        let mut result = Vec::<usize>::with_capacity(n_rows);
+
+        // sort each partition separately
+        for span in partition {
+            let start_idx = result.len();
+            result.extend(span);
+
+            let slice_to_sort = &mut result[start_idx..start_idx + span.len()];
+            slice_to_sort.sort_by_key(|row_idx| SortKey {
+                row_idx: *row_idx,
+                cols,
+                directions,
+            });
+        }
+
+        result
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum SortOrderDirection {
+    Ascending,
+    Descending,
 }
 
 impl PartialEq for Column {

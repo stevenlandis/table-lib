@@ -66,6 +66,19 @@ impl<'a> Parser<'a> {
         let iden_str =
             std::str::from_utf8(&self.text.as_bytes()[self.idx..self.idx + idx]).unwrap();
 
+        if match iden_str {
+            "and" => true,
+            "or" => true,
+            "group" => true,
+            "by" => true,
+            "sort" => true,
+            "asc" => true,
+            "desc" => true,
+            _ => false,
+        } {
+            return None;
+        }
+
         self.idx += idx;
         Some(AstNode::new(AstNodeType::Identifier(iden_str.to_string())))
     }
@@ -405,6 +418,39 @@ impl<'a> Parser<'a> {
         return true;
     }
 
+    fn parse_str_literal_word(&mut self, text: &str) -> bool {
+        // This is similar to parse_str_literal except it expects
+        // the next character to be non-alphanumeric
+        let text_bytes = text.as_bytes();
+        let mut idx = 0 as usize;
+        while idx < text_bytes.len() {
+            match self.peek(idx) {
+                None => {
+                    return false;
+                }
+                Some(ch) => {
+                    if ch != text_bytes[idx] {
+                        return false;
+                    }
+                }
+            };
+            idx += 1;
+        }
+
+        match self.peek(idx) {
+            None => {}
+            Some(ch) => {
+                if Parser::is_alpha_underscore_numeric(ch) {
+                    return false;
+                }
+            }
+        };
+
+        self.idx += idx;
+
+        true
+    }
+
     pub fn external_parse_expr(&mut self) -> Result<AstNode, ParseError> {
         self.parse_ws();
         let expr = match self.parse_query() {
@@ -604,6 +650,38 @@ impl<'a> Parser<'a> {
                 group_by,
                 get_expr,
             })))
+        } else if self.parse_str_literal_word("order") {
+            self.parse_ws();
+            if !self.parse_str_literal_word("by") {
+                return Some(Err(self.get_err(ParseErrorType::MissingBy)));
+            }
+
+            let mut orders: Option<AstNode> = None;
+
+            loop {
+                self.parse_ws();
+                let field_name = match self.parse_identifier() {
+                    None => return Some(Err(self.get_err(ParseErrorType::MissingSortFieldName))),
+                    Some(name) => name,
+                };
+
+                orders = match orders {
+                    None => Some(field_name),
+                    Some(orders) => Some(AstNode::new(AstNodeType::ListNode(orders, field_name))),
+                };
+
+                self.parse_ws();
+                if !self.parse_str_literal(",") {
+                    break;
+                }
+            }
+
+            let orders = match orders {
+                None => return Some(Err(self.get_err(ParseErrorType::MissingSortField))),
+                Some(orders) => orders,
+            };
+
+            Some(Ok(AstNode::new(AstNodeType::OrderBy(orders))))
         } else {
             None
         }
@@ -990,4 +1068,7 @@ enum ParseErrorType {
     NoClosingParen,
     NoClosingParenFcnCall,
     MissingFractionPartInFloatLiteral,
+    MissingSpaceAfterOrder,
+    MissingSortFieldName,
+    MissingSortField,
 }

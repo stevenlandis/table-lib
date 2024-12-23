@@ -26,6 +26,7 @@ pub enum AstNodeType {
         group_by: AstNode,
         get_expr: AstNode,
     },
+    OrderBy(AstNode),
     Null,
     // SubString(String),
     Identifier(String),

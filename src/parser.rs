@@ -71,6 +71,7 @@ impl<'a> Parser<'a> {
             "or" => true,
             "group" => true,
             "by" => true,
+            "get" => true,
             "sort" => true,
             "asc" => true,
             "desc" => true,

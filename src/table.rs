@@ -13,7 +13,6 @@ pub struct Table {
     col_map: HashMap<String, usize>,
     columns: Vec<TableColumnWrapper>,
     n_rows: usize,
-    partition: Partition,
 }
 
 #[derive(Debug, Clone)]
@@ -76,7 +75,6 @@ impl Table {
             col_map,
             columns,
             n_rows,
-            partition,
         }
     }
 
@@ -109,7 +107,6 @@ impl Table {
             col_map,
             columns,
             n_rows,
-            partition: Partition::new_single_partition(n_rows),
         };
     }
 
@@ -465,7 +462,6 @@ impl Table {
             col_map: new_col_map,
             columns: new_columns,
             n_rows: final_groups.len(),
-            partition: Partition::new_single_partition(final_groups.len()),
         };
     }
 
@@ -485,7 +481,6 @@ impl Table {
             columns: new_columns,
             col_map: new_col_map,
             n_rows: self.n_rows,
-            partition: self.partition.clone(),
         };
     }
 
@@ -619,7 +614,6 @@ impl Table {
             columns: new_cols,
             col_map: new_col_map,
             n_rows: join_mapping.len(),
-            partition: self.partition.clone(),
         };
     }
 
@@ -657,7 +651,6 @@ impl Table {
                 })
                 .collect::<Vec<_>>(),
             n_rows: true_indexes.len(),
-            partition: self.partition.filter_indexes(true_indexes.as_slice()),
         };
     }
 
@@ -677,7 +670,6 @@ impl Table {
             col_map: new_col_map,
             columns: new_columns,
             n_rows: self.n_rows,
-            partition: self.partition.clone(),
         };
     }
 
@@ -694,7 +686,6 @@ impl Table {
                 })
                 .collect(),
             n_rows: len,
-            partition: Partition::new_single_partition(len),
         }
     }
 

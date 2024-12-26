@@ -77,7 +77,7 @@ impl TableCollection {
 }
 
 #[derive(Clone)]
-struct CalcResult2 {
+struct CalcResult {
     cols: Vec<Column>,
     partition: Partition,
     is_scalar: bool,
@@ -90,7 +90,7 @@ struct CalcNodeCtx<'a> {
     name_cache2: HashMap<(CalcNodeId, usize), String>,
     node_cols_cache: HashMap<CalcNodeId, Vec<CalcNodeId>>,
     table_col_node_cache: HashMap<(String, String), CalcNodeId>,
-    result_cache: HashMap<CalcNodeId, CalcResult2>,
+    result_cache: HashMap<CalcNodeId, CalcResult>,
 }
 
 #[derive(Clone)]
@@ -566,7 +566,7 @@ impl<'a> CalcNodeCtx<'a> {
         self.registered_tables[name]
     }
 
-    fn eval_calc_node(&mut self, calc_node_id: CalcNodeId) -> &CalcResult2 {
+    fn eval_calc_node(&mut self, calc_node_id: CalcNodeId) -> &CalcResult {
         match self.result_cache.get(&calc_node_id) {
             None => {
                 let result = match self.get_calc_node(calc_node_id) {
@@ -579,7 +579,7 @@ impl<'a> CalcNodeCtx<'a> {
                             .map(|col| col.column.clone())
                             .collect::<Vec<_>>();
 
-                        CalcResult2 {
+                        CalcResult {
                             cols,
                             partition: Partition::new_single_partition(len),
                             is_scalar: false,
@@ -597,7 +597,7 @@ impl<'a> CalcNodeCtx<'a> {
                         //     _ => panic!(),
                         // };
 
-                        CalcResult2 {
+                        CalcResult {
                             cols: vec![result.cols[col_idx].clone()],
                             partition: result.partition.clone(),
                             // result: CalcResultType::Col(table.get_column(&col_name)),
@@ -624,7 +624,7 @@ impl<'a> CalcNodeCtx<'a> {
                             .collect::<Vec<_>>();
                         let partition = in_result.partition.filter_indexes(&true_indexes);
 
-                        CalcResult2 {
+                        CalcResult {
                             cols,
                             partition,
                             is_scalar: false,
@@ -643,7 +643,7 @@ impl<'a> CalcNodeCtx<'a> {
                                 })
                                 .collect::<Vec<_>>();
 
-                            CalcResult2 {
+                            CalcResult {
                                 cols,
                                 partition: val.partition.get_single_value_partition(),
                                 is_scalar: false,
@@ -661,7 +661,7 @@ impl<'a> CalcNodeCtx<'a> {
                                 })
                                 .collect::<Vec<_>>();
 
-                            CalcResult2 {
+                            CalcResult {
                                 cols,
                                 partition: val.partition.get_single_value_partition(),
                                 is_scalar: false,
@@ -684,7 +684,7 @@ impl<'a> CalcNodeCtx<'a> {
                                 })
                                 .collect::<Vec<_>>();
 
-                            CalcResult2 {
+                            CalcResult {
                                 cols,
                                 partition: val.partition.get_single_value_partition(),
                                 is_scalar: false,
@@ -713,7 +713,7 @@ impl<'a> CalcNodeCtx<'a> {
                         let partition = partition.unwrap();
                         let is_scalar = is_scalar.unwrap();
 
-                        CalcResult2 {
+                        CalcResult {
                             cols,
                             partition,
                             is_scalar,
@@ -740,7 +740,7 @@ impl<'a> CalcNodeCtx<'a> {
                             &get_resp.partition,
                         );
 
-                        CalcResult2 {
+                        CalcResult {
                             cols: get_resp.cols.clone(),
                             partition: result_part,
                             is_scalar: false,
@@ -756,7 +756,7 @@ impl<'a> CalcNodeCtx<'a> {
                         let partition = self.eval_calc_node(group_by_fields_id).partition.clone();
                         let source_result = self.eval_calc_node(source_id);
 
-                        CalcResult2 {
+                        CalcResult {
                             cols: source_result.cols.clone(),
                             partition,
                             is_scalar: false,
@@ -772,7 +772,7 @@ impl<'a> CalcNodeCtx<'a> {
                         let partition =
                             Column::group_by(&group_by_result.cols, &group_by_result.partition);
 
-                        CalcResult2 {
+                        CalcResult {
                             cols: group_by_result.cols.clone(),
                             partition,
                             is_scalar: false,
@@ -799,18 +799,18 @@ impl<'a> CalcNodeCtx<'a> {
                             right_col = right_col.repeat_scalar_col(left_col.len());
                         }
 
-                        CalcResult2 {
+                        CalcResult {
                             cols: vec![&left_col + &right_col],
                             partition: left_partition,
                             is_scalar: left_is_scalar && right_is_scalar,
                         }
                     }
-                    CalcNode::Integer(val) => CalcResult2 {
+                    CalcNode::Integer(val) => CalcResult {
                         cols: vec![Column::from_repeated_f64(*val as f64, 1)],
                         partition: Partition::new_single_partition(1),
                         is_scalar: true,
                     },
-                    CalcNode::Float64(val) => CalcResult2 {
+                    CalcNode::Float64(val) => CalcResult {
                         cols: vec![Column::from_repeated_f64(*val, 1)],
                         partition: Partition::new_single_partition(1),
                         is_scalar: true,
@@ -840,7 +840,7 @@ impl<'a> CalcNodeCtx<'a> {
                             .map(|col| col.from_indexes(&sort_indexes))
                             .collect::<Vec<_>>();
 
-                        CalcResult2 {
+                        CalcResult {
                             cols: result_cols,
                             partition: source.partition.reset_row_indexes(),
                             is_scalar: false,
@@ -857,7 +857,7 @@ impl<'a> CalcNodeCtx<'a> {
                             .map(|col| col.limit(limit, &source_result.partition))
                             .collect::<Vec<_>>();
 
-                        CalcResult2 {
+                        CalcResult {
                             cols: result_cols,
                             partition: source_result.partition.limit(limit),
                             is_scalar: false,

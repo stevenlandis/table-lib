@@ -3,7 +3,6 @@ use std::hash::Hash;
 use std::{collections::HashMap, hash::Hasher, iter::zip};
 
 use crate::bit_vec::BitVec;
-use crate::partition::Partition;
 use crate::str_vec::StringVec;
 
 use super::column::{AggregationType, Column, Group};
@@ -48,10 +47,7 @@ impl PartialEq for Table {
 }
 
 impl Table {
-    pub fn from_columns(
-        partition: Partition,
-        columns_iter: impl IntoIterator<Item = TableColumnWrapper>,
-    ) -> Self {
+    pub fn from_columns(columns_iter: impl IntoIterator<Item = TableColumnWrapper>) -> Self {
         let mut col_map = HashMap::<String, usize>::new();
         let mut columns = Vec::<TableColumnWrapper>::new();
         let mut n_rows: usize = 0;
@@ -696,7 +692,6 @@ impl Table {
         let mut col_names = StringVec::new();
         let mut col_values = Vec::<StringVec>::new();
         let mut col_nulls = Vec::<BitVec>::new();
-        let mut n_rows: usize = 0;
 
         match reader.headers() {
             Err(_) => panic!("csv file needs a header row"),
@@ -710,7 +705,6 @@ impl Table {
         }
 
         for record in reader.records() {
-            n_rows += 1;
             match record {
                 Err(_) => panic!("unable to read csv"),
                 Ok(record) => {
@@ -727,7 +721,6 @@ impl Table {
         }
 
         Table::from_columns(
-            Partition::new_single_partition(n_rows),
             std::iter::zip(&col_names, std::iter::zip(col_nulls, col_values)).map(
                 |(col_name, (col_nul, col_val))| TableColumnWrapper {
                     name: col_name.to_string(),

@@ -1,5 +1,8 @@
-use std::{borrow::BorrowMut, cell::UnsafeCell, rc::Rc};
+use std::cell::UnsafeCell;
 
+/// This struct is an append-only list. It is possible to append to this list while having other readonly references to previous array elements.
+///
+/// TODO: Re-implement to use larger vec allocations instead of an allocation for each element.
 pub struct ImmutableAppendList<T> {
     data: UnsafeCell<Vec<Box<T>>>,
 }

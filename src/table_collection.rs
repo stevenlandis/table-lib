@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use crate::{
     ast_node::{AstNode, AstNodeType},
     parser::{ParseError, Parser},
-    partition::Partition,
+    partition::{self, Partition},
     AggregationType, Column, SortOrderDirection, Table, TableColumnWrapper,
 };
 
@@ -89,6 +89,7 @@ enum CalcResult {
     Partition(Partition),
     Column(Column),
     RowIndexes(Vec<usize>),
+    GroupByPartition(Partition, Vec<usize>),
 }
 
 #[derive(Clone)]
@@ -214,6 +215,7 @@ impl<'a> CalcNodeCtx<'a> {
                     CalcNode::GetUngroupPartition(info) => self.get_part_level(info.source_id),
                     CalcNode::Alias(col_id, _) => self.get_part_level(*col_id),
                     CalcNode::OrderColumn(info) => self.get_part_level(info.col_id),
+                    CalcNode::ReOrderAndRePartition(info) => self.get_part_level(info.partition_id),
                     _ => {
                         // self._print_debug();
                         todo!("Unimplemented for {:?}", self.get_calc_node(calc_node_id))
@@ -296,6 +298,7 @@ impl<'a> CalcNodeCtx<'a> {
                     },
                     CalcNode::Alias(col_id, _) => self.is_scalar(*col_id),
                     CalcNode::OrderColumn(info) => self.is_scalar(info.col_id),
+                    CalcNode::ReOrderAndRePartition(info) => self.is_scalar(info.col_id),
                     _ => todo!("Unimplemented for {:?}", self.get_calc_node(node_id)),
                 };
                 self.calc_node_to_is_scalar.insert(node_id, result);
@@ -417,6 +420,7 @@ impl<'a> CalcNodeCtx<'a> {
                     CalcNode::RePartition(info) => info.partition,
                     CalcNode::Alias(col_id, _) => self.get_partition_id(*col_id),
                     CalcNode::OrderColumn(info) => info.partition_id,
+                    CalcNode::ReOrderAndRePartition(info) => info.partition_id,
                     _ => todo!("Unimplemented for {:?}", self.get_calc_node(node_id)),
                 };
                 self.calc_node_to_partition_id.insert(node_id, result);
@@ -508,6 +512,9 @@ impl<'a> CalcNodeCtx<'a> {
                         self.get_calc_node_name(info.col_id, col_idx).to_string()
                     }
                     CalcNode::OrderColumn(info) => {
+                        self.get_calc_node_name(info.col_id, col_idx).to_string()
+                    }
+                    CalcNode::ReOrderAndRePartition(info) => {
                         self.get_calc_node_name(info.col_id, col_idx).to_string()
                     }
                     _ => todo!("unimplemented for {:?}", self.get_calc_node(id)),
@@ -666,6 +673,9 @@ impl<'a> CalcNodeCtx<'a> {
                     CalcNode::OrderColumn(_) => {
                         cols.push(id);
                     }
+                    CalcNode::ReOrderAndRePartition(_) => {
+                        cols.push(id);
+                    }
                     _ => todo!("unimplemented for {:?}", self.get_calc_node(id)),
                 };
 
@@ -805,8 +815,15 @@ impl<'a> CalcNodeCtx<'a> {
 
                 let group_col_ids = group_col_ids
                     .iter()
+                    .cloned()
                     .map(|col_id| {
-                        let col_id = self.repartition(*col_id, partition_node);
+                        let col_id = self.add_calc_node(CalcNode::ReOrderAndRePartition(
+                            ReOrderAndRePartition {
+                                col_id,
+                                partition_id: partition_node,
+                                row_indexes_id: partition_node,
+                            },
+                        ));
                         let first_id = self.add_calc_node(CalcNode::FcnCall {
                             name: "first".to_string(),
                             args: vec![col_id],
@@ -824,7 +841,14 @@ impl<'a> CalcNodeCtx<'a> {
 
                 let select_col_ids = select_col_ids
                     .iter()
-                    .map(|col_id| self.repartition(*col_id, partition_node))
+                    .cloned()
+                    .map(|col_id| {
+                        self.add_calc_node(CalcNode::ReOrderAndRePartition(ReOrderAndRePartition {
+                            col_id,
+                            partition_id: partition_node,
+                            row_indexes_id: partition_node,
+                        }))
+                    })
                     .collect::<Vec<_>>();
 
                 let all_select_col_ids = select_col_ids
@@ -1160,9 +1184,10 @@ impl<'a> CalcNodeCtx<'a> {
                     }
                     CalcNode::GroupByPartition { source_id } => {
                         let input = self.eval_table(*source_id);
-                        let partition = Column::group_by(&input.cols, &input.partition);
+                        let (partition, row_indexes) =
+                            Column::group_by(&input.cols, &input.partition);
 
-                        CalcResult::Partition(partition)
+                        CalcResult::GroupByPartition(partition, row_indexes)
                     }
                     CalcNode::Add(left_id, right_id) => {
                         let left_id = *left_id;
@@ -1197,41 +1222,6 @@ impl<'a> CalcNodeCtx<'a> {
                         partition: Partition::new_single_partition(1),
                     }),
                     CalcNode::Alias(col_id, _) => self.eval_calc_node(*col_id).clone(),
-                    // CalcNode::OrderBy {
-                    //     source_id,
-                    //     orders_id,
-                    //     directions,
-                    // } => {
-                    //     let source_id = *source_id;
-                    //     let orders_id = *orders_id;
-                    //     let directions = directions.clone();
-                    //     let source = match self.eval_calc_node(source_id) {
-                    //         CalcResult::Table(table) => table.clone(),
-                    //         _ => panic!(),
-                    //     };
-
-                    //     let orders_result = match self.eval_calc_node(orders_id) {
-                    //         CalcResult::Table(table) => table.clone(),
-                    //         _ => panic!(),
-                    //     };
-
-                    //     let sort_indexes = Column::get_sorted_indexes(
-                    //         &orders_result.cols,
-                    //         &directions,
-                    //         source.cols[0].len(),
-                    //         &source.partition,
-                    //     );
-                    //     let result_cols = source
-                    //         .cols
-                    //         .iter()
-                    //         .map(|col| col.from_indexes(&sort_indexes))
-                    //         .collect::<Vec<_>>();
-
-                    //     CalcResult::Table(CalcResultTable {
-                    //         cols: result_cols,
-                    //         partition: source.partition.reset_row_indexes(),
-                    //     })
-                    // }
                     CalcNode::Limit(source_id, limit) => {
                         let source_id = *source_id;
                         let limit = *limit;
@@ -1321,6 +1311,17 @@ impl<'a> CalcNodeCtx<'a> {
 
                         CalcResult::RowIndexes(sort_indexes)
                     }
+                    CalcNode::ReOrderAndRePartition(info) => {
+                        let info = *info;
+                        let source_col = self.eval_column(info.col_id).clone();
+                        let partition = self.eval_partition(info.partition_id).clone();
+                        let row_indexes = self.eval_row_indexes(info.row_indexes_id);
+
+                        CalcResult::Table(CalcResultTable {
+                            cols: vec![source_col.from_indexes(row_indexes)],
+                            partition,
+                        })
+                    }
                     _ => todo!("unimplemented for {:?}", self.get_calc_node(calc_node_id)),
                 };
                 self.result_cache.insert(calc_node_id, result);
@@ -1334,6 +1335,7 @@ impl<'a> CalcNodeCtx<'a> {
     fn eval_row_indexes(&mut self, node_id: CalcNodeId) -> &Vec<usize> {
         match self.eval_calc_node(node_id) {
             CalcResult::RowIndexes(indexes) => indexes,
+            CalcResult::GroupByPartition(_, row_indexes) => row_indexes,
             _ => panic!(),
         }
     }
@@ -1354,6 +1356,7 @@ impl<'a> CalcNodeCtx<'a> {
         match result {
             CalcResult::Table(table) => &table.partition,
             CalcResult::Partition(partition) => partition,
+            CalcResult::GroupByPartition(partition, _) => partition,
             _ => panic!(),
         }
     }
@@ -1412,6 +1415,7 @@ enum CalcNode {
         // A partition calculated from all columns on a table
         source_id: CalcNodeId,
     },
+    ReOrderAndRePartition(ReOrderAndRePartition),
     GroupBy {
         // root calc node for groups
         source_id: CalcNodeId,
@@ -1441,6 +1445,12 @@ enum CalcNode {
     },
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ReOrderAndRePartition {
+    col_id: CalcNodeId,
+    partition_id: CalcNodeId,
+    row_indexes_id: CalcNodeId,
+}
 #[derive(Debug, Clone)]
 struct OrderByRowIndexes {
     source_id: CalcNodeId,

@@ -196,7 +196,7 @@ impl Column {
         let mut indexes = Vec::<usize>::new();
         for (span, target_span) in std::iter::zip(partition, target_partition) {
             assert_eq!(span.len(), 1);
-            let idx = span[0];
+            let idx = span.start;
             for _ in target_span {
                 indexes.push(idx);
             }
@@ -205,7 +205,7 @@ impl Column {
         self.from_indexes(&indexes)
     }
 
-    pub fn group_by(group_cols: &[Column], partition: &Partition) -> Partition {
+    pub fn group_by(group_cols: &[Column], partition: &Partition) -> (Partition, Vec<usize>) {
         let inner_group_cols = group_cols
             .iter()
             .map(|col| col.col.as_ref())
@@ -336,10 +336,9 @@ impl Column {
 
         // sort each partition separately
         for span in partition {
-            let start_idx = result.len();
-            result.extend(span);
+            result.extend(span.clone());
 
-            let slice_to_sort = &mut result[start_idx..start_idx + span.len()];
+            let slice_to_sort = &mut result[span];
             slice_to_sort.sort_by_key(|row_idx| SortKey {
                 row_idx: *row_idx,
                 cols,
@@ -356,7 +355,7 @@ impl Column {
             ColumnValues::Text(inner_col) => {
                 let mut values = StringVec::new();
                 for span in partition {
-                    for row_idx in span.iter().take(limit).cloned() {
+                    for row_idx in span.take(limit) {
                         nulls.push(self.col.nulls.at(row_idx));
                         values.push(inner_col.get_str_at_idx(row_idx));
                     }
@@ -367,7 +366,7 @@ impl Column {
             ColumnValues::Float64(inner_col) => {
                 let mut values = Vec::<f64>::new();
                 for span in partition {
-                    for row_idx in span.iter().take(limit).cloned() {
+                    for row_idx in span.take(limit) {
                         nulls.push(self.col.nulls.at(row_idx));
                         values.push(inner_col.values[row_idx]);
                     }
@@ -378,7 +377,7 @@ impl Column {
             ColumnValues::Bool(inner_col) => {
                 let mut values = BitVec::new();
                 for span in partition {
-                    for row_idx in span.iter().take(limit).cloned() {
+                    for row_idx in span.take(limit) {
                         nulls.push(self.col.nulls.at(row_idx));
                         values.push(inner_col.values.at(row_idx));
                     }
@@ -741,9 +740,9 @@ impl InnerColumn {
                         let mut has_non_null = false;
                         let mut val: f64 = 0.0;
                         for row_idx in span {
-                            if !self.nulls.at(*row_idx) {
+                            if !self.nulls.at(row_idx) {
                                 has_non_null = true;
-                                val += values.values[*row_idx];
+                                val += values.values[row_idx];
                             }
                         }
                         out_nulls.push(!has_non_null);
@@ -764,7 +763,7 @@ impl InnerColumn {
                     let mut out_nulls = BitVec::new();
                     let mut out_values = Vec::<f64>::with_capacity(partition.n_spans());
                     for span in partition {
-                        let first_row_idx = *span.iter().nth(0).unwrap();
+                        let first_row_idx = span.into_iter().nth(0).unwrap();
                         out_nulls.push(self.nulls.at(first_row_idx));
                         out_values.push(values.values[first_row_idx]);
                     }
@@ -778,7 +777,7 @@ impl InnerColumn {
                     let mut builder = TextColBuilder::new(partition.n_spans());
 
                     for span in partition {
-                        let first_row_idx = *span.iter().nth(0).unwrap();
+                        let first_row_idx = span.into_iter().nth(0).unwrap();
                         if self.nulls.at(first_row_idx) {
                             builder.add_null();
                         } else {
@@ -1115,7 +1114,7 @@ impl InnerColumn {
         }
     }
 
-    fn group_by(group_cols: &[&InnerColumn], partition: &Partition) -> Partition {
+    fn group_by(group_cols: &[&InnerColumn], partition: &Partition) -> (Partition, Vec<usize>) {
         struct HashKey<'a> {
             row_idx: usize,
             columns: &'a [&'a InnerColumn],
@@ -1138,7 +1137,7 @@ impl InnerColumn {
         }
 
         let mut part_builder = PartitionBuilder::new();
-        // let mut part_lens = Vec::<usize>::new();
+        let mut row_indexes = Vec::<usize>::new();
 
         for span in partition {
             // TODO: Move out of loop to minimize allocations
@@ -1148,7 +1147,7 @@ impl InnerColumn {
             // let mut external_indexes = Vec::<usize>::new();
             let mut next_indexes = vec![usize::MAX; span.len()];
 
-            for (inner_idx, idx) in span.iter().cloned().enumerate() {
+            for (inner_idx, idx) in span.clone().enumerate() {
                 // external_indexes.push(*outer_idx);
                 match hash_to_group_idx.entry(HashKey {
                     row_idx: idx,
@@ -1171,16 +1170,18 @@ impl InnerColumn {
 
             for start_idx in group_first_indexes.iter().cloned() {
                 let mut idx = start_idx;
+                let mut span_len: usize = 0;
                 while idx != usize::MAX {
-                    part_builder.add_row_idx(span[idx]);
+                    row_indexes.push(span.start + idx);
                     idx = next_indexes[idx];
+                    span_len += 1;
                 }
-                part_builder.finish_span();
+                part_builder.add_span(span_len);
             }
             // part_lens.push(group_first_indexes.len());
         }
 
-        part_builder.to_partition()
+        (part_builder.to_partition(), row_indexes)
         // (part_builder.to_partition(), part_lens)
     }
 }

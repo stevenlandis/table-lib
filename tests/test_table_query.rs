@@ -370,7 +370,7 @@ mod tests {
             .query(
                 r#"
                 from tbl0
-                group by col0 get (
+                group by col0 get col0, (
                     group by col1 get avg(val0) as val0
                     get sum(val0)
                 )

@@ -188,6 +188,7 @@ impl<'a> CalcNodeCtx<'a> {
                         left_level
                     }
                     CalcNode::Integer(_) => ROOT_PARTITION_LEVEL,
+                    CalcNode::Float64(_) => ROOT_PARTITION_LEVEL,
                     CalcNode::ColSpread(_, part_level) => *part_level,
                     CalcNode::Table { name: _ } => ROOT_PARTITION_LEVEL,
                     CalcNode::SpreadScalarCol(source_id, _) => self.get_part_level(*source_id),
@@ -205,6 +206,7 @@ impl<'a> CalcNodeCtx<'a> {
                     CalcNode::FcnCall { name, args } => match name.as_str() {
                         "first" => self.get_part_level(args[0]),
                         "sum" => self.get_part_level(args[0]),
+                        "avg" => self.get_part_level(args[0]),
                         _ => todo!("unimplemented for fcn {}", name),
                     },
                     CalcNode::GetUngroupPartition(info) => self.get_part_level(info.source_id),
@@ -268,6 +270,7 @@ impl<'a> CalcNodeCtx<'a> {
                     }
                     CalcNode::ColSpread(source_id, _) => self.is_scalar(*source_id),
                     CalcNode::Integer(_) => true,
+                    CalcNode::Float64(_) => true,
                     CalcNode::SpreadScalarCol(_, _) => false,
                     CalcNode::Selects { col_ids } => {
                         let col_ids = col_ids.clone();
@@ -285,6 +288,7 @@ impl<'a> CalcNodeCtx<'a> {
                     CalcNode::FcnCall { name, args } => match name.as_str() {
                         "first" => true,
                         "sum" => true,
+                        "avg" => true,
                         _ => todo!("unimplemented for fcn {}", name),
                     },
                     CalcNode::Alias(col_id, _) => self.is_scalar(*col_id),
@@ -407,6 +411,7 @@ impl<'a> CalcNodeCtx<'a> {
                         part_id
                     }
                     CalcNode::RePartition(info) => info.partition,
+                    CalcNode::Alias(col_id, _) => self.get_partition_id(*col_id),
                     _ => todo!("Unimplemented for {:?}", self.get_calc_node(node_id)),
                 };
                 self.calc_node_to_partition_id.insert(node_id, result);

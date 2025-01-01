@@ -87,7 +87,6 @@ struct CalcNodeCtx<'a> {
     calc_node_to_part_level: HashMap<CalcNodeId, PartitionLevel>,
     calc_node_to_partition_id: HashMap<CalcNodeId, PartitionId>,
     calc_node_to_is_scalar: HashMap<CalcNodeId, bool>,
-    partition_level_to_source_partition_id: HashMap<PartitionLevel, PartitionId>,
 }
 
 const ROOT_PARTITION_LEVEL: usize = 0;
@@ -111,7 +110,6 @@ impl<'a> CalcNodeCtx<'a> {
             calc_node_to_part_level: HashMap::new(),
             calc_node_to_partition_id: HashMap::new(),
             calc_node_to_is_scalar: HashMap::new(),
-            partition_level_to_source_partition_id: HashMap::new(),
         }
     }
 
@@ -961,17 +959,8 @@ impl<'a> CalcNodeCtx<'a> {
     }
 
     fn add_aggregated_partition(&mut self, col_id: CalcNodeId) -> CalcNodeId {
-        let in_partition_id = self.get_partition_id(col_id);
         let in_partition_level = self.get_partition_level(col_id);
         let out_part_id = self.add_calc_node(CalcNode::AggregatedPartition(in_partition_level));
-
-        if !self
-            .partition_level_to_source_partition_id
-            .contains_key(&in_partition_level)
-        {
-            self.partition_level_to_source_partition_id
-                .insert(in_partition_level, in_partition_id);
-        }
 
         out_part_id
     }
@@ -1188,9 +1177,7 @@ impl<'a> CalcNodeCtx<'a> {
                     }
                     CalcNode::AggregatedPartition(partition_level) => {
                         let partition_level = *partition_level;
-                        let in_partition_id =
-                            self.partition_level_to_source_partition_id[&partition_level];
-                        let in_partition = self.eval_partition_from_partition_id(in_partition_id);
+                        let in_partition = self.eval_partition_from_calc_node(partition_level);
 
                         CalcResult::Partition(in_partition.get_single_value_partition())
                     }

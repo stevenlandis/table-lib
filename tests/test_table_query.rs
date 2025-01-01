@@ -659,4 +659,56 @@ mod tests {
             )
         );
     }
+
+    #[test]
+    fn sum_plus_value() {
+        let table = Table::from_json_str(
+            r#"
+            {
+                "columns": [
+                    {
+                        "name": "id",
+                        "type": "text",
+                        "values": ["id0", "id0", "id0", "id1", "id2", "id1"]
+                    },
+                    {
+                        "name": "val",
+                        "type": "float64",
+                        "values": ["1", "2", "3", "4", null, "5"]
+                    }
+                ]
+            }
+            "#,
+        );
+
+        let mut collection = TableCollection::new();
+        collection.add_table("tbl0", table);
+
+        let result = collection
+            .query(
+                r#"
+                from tbl0
+                group by id get id, val + sum(val) + 1 as val
+                "#,
+            )
+            .unwrap();
+
+        assert_eq!(
+            result,
+            Table::from_json_str(
+                r#"{"columns":[
+                    {
+                        "name": "id",
+                        "type": "text",
+                        "values": ["id0", "id0", "id0", "id1", "id1", "id2"]
+                    },
+                    {
+                        "name": "id",
+                        "type": "float64",
+                        "values": ["8", "9", "10", "14", "15", "1"]
+                    }
+                ]}"#
+            )
+        );
+    }
 }

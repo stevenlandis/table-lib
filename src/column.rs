@@ -393,7 +393,7 @@ impl Column {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Hash)]
 pub enum SortOrderDirection {
     Ascending,
     Descending,
@@ -1310,6 +1310,7 @@ pub struct BoolColumnValues {
     pub values: BitVec,
 }
 
+#[derive(Debug, PartialEq, Hash, Clone, Copy)]
 pub enum AggregationType {
     Sum,
     First,

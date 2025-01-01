@@ -48,6 +48,10 @@ impl Partition {
         self.rc.len()
     }
 
+    pub fn n_rows(&self) -> usize {
+        self.rc.spans.iter().fold(0, |acc, span| acc + span.len)
+    }
+
     pub fn filter_indexes(&self, row_indexes: &[usize]) -> Partition {
         Partition {
             rc: Rc::new(self.rc.filter_indexes(row_indexes)),
@@ -115,19 +119,38 @@ impl Partition {
         self.into_iter()
     }
 
-    pub fn limit(&self, limit: usize) -> Partition {
-        let mut n_rows: usize = 0;
-        let mut spans = Vec::<Span>::with_capacity(self.rc.spans.len());
-        for span in &self.rc.spans {
-            let len = span.len.min(limit);
-            spans.push(Span { start: n_rows, len });
-            n_rows += len;
+    pub fn get_limit_row_indexes(&self, limit: usize) -> Vec<usize> {
+        self.iter().map(|span| span.take(limit)).flatten().collect()
+    }
+
+    pub fn from_row_indexes(&self, row_indexes: &[usize]) -> Partition {
+        // let partition = self.rc.as_ref();
+        let mut included_indexes = vec![false; self.n_rows()];
+        for idx in row_indexes {
+            included_indexes[*idx] = true;
         }
 
-        Partition {
-            rc: Rc::new(InnerPartition { spans }),
+        let mut result_builder = PartitionBuilder::new();
+        for span in self {
+            result_builder.add_span(span.filter(|idx| included_indexes[*idx]).count());
         }
+
+        result_builder.to_partition()
     }
+
+    // pub fn limit(&self, limit: usize) -> Partition {
+    //     let mut n_rows: usize = 0;
+    //     let mut spans = Vec::<Span>::with_capacity(self.rc.spans.len());
+    //     for span in &self.rc.spans {
+    //         let len = span.len.min(limit);
+    //         spans.push(Span { start: n_rows, len });
+    //         n_rows += len;
+    //     }
+
+    //     Partition {
+    //         rc: Rc::new(InnerPartition { spans }),
+    //     }
+    // }
 }
 
 struct InnerPartition {

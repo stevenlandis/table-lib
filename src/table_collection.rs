@@ -83,7 +83,6 @@ struct CalcNodeCtx<'a> {
     name_cache: HashMap<CalcNodeId, String>,
     node_cols_cache: HashMap<CalcNodeId, Vec<CalcNodeId>>,
     result_cache: HashMap<CalcNodeId, CalcResult>,
-    part_level_count: usize,
     part_level_parent_map: HashMap<PartitionLevel, PartitionLevel>,
     calc_node_to_part_level: HashMap<CalcNodeId, PartitionLevel>,
     calc_node_to_partition_id: HashMap<CalcNodeId, PartitionId>,
@@ -108,7 +107,6 @@ impl<'a> CalcNodeCtx<'a> {
             name_cache: HashMap::new(),
             node_cols_cache: HashMap::new(),
             result_cache: HashMap::new(),
-            part_level_count: ROOT_PARTITION_LEVEL + 1,
             part_level_parent_map: HashMap::new(),
             calc_node_to_part_level: HashMap::new(),
             calc_node_to_partition_id: HashMap::new(),
@@ -172,7 +170,10 @@ impl<'a> CalcNodeCtx<'a> {
                         level
                     }
                     CalcNode::RePartition(info) => self.get_partition_level(info.partition),
-                    CalcNode::GroupByPartition { source_id: _ } => self.get_new_partition_level(),
+                    CalcNode::GroupByPartition { source_id } => {
+                        let parent_level = self.get_partition_level(*source_id);
+                        self.get_new_partition_level(calc_node_id, parent_level)
+                    }
                     CalcNode::GetUngroupPartition(info) => self.get_partition_level(info.source_id),
                     CalcNode::Alias(col_id, _) => self.get_partition_level(*col_id),
                     CalcNode::OrderColumn(info) => self.get_partition_level(info.col_id),
@@ -984,10 +985,15 @@ impl<'a> CalcNodeCtx<'a> {
         })
     }
 
-    fn get_new_partition_level(&mut self) -> usize {
-        let result = self.part_level_count;
-        self.part_level_count += 1;
-        result
+    fn get_new_partition_level(
+        &mut self,
+        source_id: CalcNodeId,
+        parent_level: PartitionLevel,
+    ) -> usize {
+        assert!(!self.part_level_parent_map.contains_key(&source_id));
+        self.part_level_parent_map.insert(source_id, parent_level);
+
+        source_id
     }
 
     fn get_table_calc_node(&mut self, name: &str) -> CalcNodeId {

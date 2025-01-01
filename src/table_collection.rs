@@ -56,7 +56,7 @@ impl TableCollection {
             .collect::<Vec<_>>();
 
         let table = Table::from_columns(col_ids.iter().cloned().map(|col_id| TableColumnWrapper {
-            name: calc_ctx.get_calc_node_name(col_id, 0).to_string(),
+            name: calc_ctx.get_calc_node_name(col_id).to_string(),
             column: calc_ctx.eval_column(col_id).clone(),
         }));
 
@@ -80,7 +80,7 @@ struct CalcNodeCtx<'a> {
     calc_nodes: Vec<CalcNode>,
     calc_node_to_id_map: HashMap<CalcNode, usize>,
     registered_tables: HashMap<String, CalcNodeId>,
-    name_cache2: HashMap<(CalcNodeId, usize), String>,
+    name_cache: HashMap<CalcNodeId, String>,
     node_cols_cache: HashMap<CalcNodeId, Vec<CalcNodeId>>,
     result_cache: HashMap<CalcNodeId, CalcResult>,
     part_level_count: usize,
@@ -105,7 +105,7 @@ impl<'a> CalcNodeCtx<'a> {
             calc_nodes: Vec::new(),
             calc_node_to_id_map: HashMap::new(),
             registered_tables: HashMap::new(),
-            name_cache2: HashMap::new(),
+            name_cache: HashMap::new(),
             node_cols_cache: HashMap::new(),
             result_cache: HashMap::new(),
             part_level_count: ROOT_PARTITION_LEVEL + 1,
@@ -460,17 +460,13 @@ impl<'a> CalcNodeCtx<'a> {
         }
     }
 
-    fn get_calc_node_name(&mut self, id: CalcNodeId, col_idx: usize) -> &str {
-        let key = (id, col_idx);
-        match self.name_cache2.get(&key) {
+    fn get_calc_node_name(&mut self, col_id: CalcNodeId) -> &str {
+        match self.name_cache.get(&col_id) {
             None => {
-                let name = match self.get_calc_node(id) {
+                let name = match self.get_calc_node(col_id) {
                     CalcNode::TableCol(info) => info.col_name.clone(),
                     CalcNode::GroupByPartition { source_id } => {
-                        self.get_calc_node_name(*source_id, col_idx).to_string()
-                    }
-                    CalcNode::Selects { col_ids } => {
-                        self.get_calc_node_name(col_ids[col_idx], 0).to_string()
+                        self.get_calc_node_name(*source_id).to_string()
                     }
                     CalcNode::Add(left, right) => {
                         let left = *left;
@@ -478,9 +474,9 @@ impl<'a> CalcNodeCtx<'a> {
 
                         let mut result = String::new();
                         result.push_str("(");
-                        result.push_str(self.get_calc_node_name(left, 0));
+                        result.push_str(self.get_calc_node_name(left));
                         result.push_str(" + ");
-                        result.push_str(self.get_calc_node_name(right, 0));
+                        result.push_str(self.get_calc_node_name(right));
                         result.push_str(")");
 
                         result
@@ -489,16 +485,12 @@ impl<'a> CalcNodeCtx<'a> {
                     CalcNode::Float64(val) => val.val.to_string(),
                     CalcNode::Alias(_, name) => name.clone(),
                     CalcNode::SpreadScalarCol(source_id, _) => {
-                        self.get_calc_node_name(*source_id, col_idx).to_string()
+                        self.get_calc_node_name(*source_id).to_string()
                     }
-                    CalcNode::RePartition(info) => {
-                        self.get_calc_node_name(info.col_id, col_idx).to_string()
-                    }
-                    CalcNode::OrderColumn(info) => {
-                        self.get_calc_node_name(info.col_id, col_idx).to_string()
-                    }
+                    CalcNode::RePartition(info) => self.get_calc_node_name(info.col_id).to_string(),
+                    CalcNode::OrderColumn(info) => self.get_calc_node_name(info.col_id).to_string(),
                     CalcNode::ReOrderAndRePartition(info) => {
-                        self.get_calc_node_name(info.col_id, col_idx).to_string()
+                        self.get_calc_node_name(info.col_id).to_string()
                     }
                     CalcNode::Aggregation {
                         col_id,
@@ -512,19 +504,19 @@ impl<'a> CalcNodeCtx<'a> {
                             AggregationType::Sum => "sum",
                         });
                         result.push_str("(");
-                        result.push_str(self.get_calc_node_name(*col_id, col_idx));
+                        result.push_str(self.get_calc_node_name(*col_id));
                         result.push_str(")");
 
                         result
                     }
-                    _ => todo!("unimplemented for {:?}", self.get_calc_node(id)),
+                    _ => todo!("unimplemented for {:?}", self.get_calc_node(col_id)),
                 };
-                self.name_cache2.insert(key, name);
+                self.name_cache.insert(col_id, name);
             }
             _ => {}
         };
 
-        &self.name_cache2[&key]
+        &self.name_cache[&col_id]
     }
 
     fn get_calc_node_cols(&mut self, id: CalcNodeId) -> &[CalcNodeId] {
@@ -601,7 +593,7 @@ impl<'a> CalcNodeCtx<'a> {
             .collect::<Vec<_>>();
 
         for (col_idx, col_id) in col_ids.iter().cloned().enumerate().rev() {
-            if self.get_calc_node_name(col_id, 0) == col_name {
+            if self.get_calc_node_name(col_id) == col_name {
                 return col_idx;
             }
         }
@@ -738,7 +730,7 @@ impl<'a> CalcNodeCtx<'a> {
                             },
                         ));
                         let first_id = self.add_aggregation(col_id, AggregationType::First);
-                        let col_name = self.get_calc_node_name(col_id, 0).to_string();
+                        let col_name = self.get_calc_node_name(col_id).to_string();
                         self.add_calc_node(CalcNode::Alias(first_id, col_name))
                     })
                     .collect::<Vec<_>>();

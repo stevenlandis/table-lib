@@ -1047,7 +1047,7 @@ impl<'a> CalcNodeCtx<'a> {
                             .map(|col_id| self.eval_column(col_id).clone())
                             .collect::<Vec<_>>();
 
-                        let partition = self.eval_partition_from_calc_node(source_id);
+                        let partition = self.eval_partition(source_id);
 
                         let (partition, row_indexes) = Column::group_by(&cols, &partition);
 
@@ -1090,12 +1090,9 @@ impl<'a> CalcNodeCtx<'a> {
                         let source_id = *source_id;
                         let target_partition_id = *target_partition_id;
                         let source_col = self.eval_column(source_id).clone();
-                        let source_partition =
-                            self.eval_partition_from_calc_node(source_id).clone();
+                        let source_partition = self.eval_partition(source_id).clone();
 
-                        let target_partition = self
-                            .eval_partition_from_partition_id(target_partition_id)
-                            .clone();
+                        let target_partition = self.eval_partition(target_partition_id).clone();
 
                         let new_col =
                             source_col.repeat_with_partition(&source_partition, &target_partition);
@@ -1110,12 +1107,9 @@ impl<'a> CalcNodeCtx<'a> {
                     }
                     CalcNode::GetUngroupPartition(info) => {
                         let info = *info;
-                        let source_part =
-                            self.eval_partition_from_calc_node(info.source_id).clone();
-                        let group_part = self
-                            .eval_partition_from_partition_id(info.group_partition_id)
-                            .clone();
-                        let result_part = self.eval_partition_from_calc_node(info.result_id);
+                        let source_part = self.eval_partition(info.source_id).clone();
+                        let group_part = self.eval_partition(info.group_partition_id).clone();
+                        let result_part = self.eval_partition(info.result_id);
 
                         CalcResult::Partition(Partition::undo_group_by(
                             &source_part,
@@ -1143,7 +1137,7 @@ impl<'a> CalcNodeCtx<'a> {
                             .map(|col_id| self.eval_column(col_id).clone())
                             .collect::<Vec<_>>();
 
-                        let partition = self.eval_partition_from_calc_node(info.order_cols_id);
+                        let partition = self.eval_partition(info.order_cols_id);
 
                         let sort_indexes = Column::get_sorted_indexes(
                             &sort_cols,
@@ -1169,7 +1163,7 @@ impl<'a> CalcNodeCtx<'a> {
                         let col_id = *col_id;
                         let typ = *typ;
 
-                        let partition = self.eval_partition_from_calc_node(col_id).clone();
+                        let partition = self.eval_partition(col_id).clone();
                         let col = self.eval_column(col_id);
                         let agg_col = col.aggregate_partition(&partition, &typ);
 
@@ -1177,14 +1171,13 @@ impl<'a> CalcNodeCtx<'a> {
                     }
                     CalcNode::AggregatedPartition(partition_level) => {
                         let partition_level = *partition_level;
-                        let in_partition = self.eval_partition_from_calc_node(partition_level);
+                        let in_partition = self.eval_partition(partition_level);
 
                         CalcResult::Partition(in_partition.get_single_value_partition())
                     }
                     CalcNode::Count(info) => {
                         let info = *info;
-                        let in_partition =
-                            self.eval_partition_from_partition_id(info.in_partition_id);
+                        let in_partition = self.eval_partition(info.in_partition_id);
                         let out_col = Column::aggregate_count(in_partition);
 
                         CalcResult::Column(out_col)
@@ -1192,7 +1185,7 @@ impl<'a> CalcNodeCtx<'a> {
                     CalcNode::LimitRowIndexes(partition_id, limit) => {
                         let partition_id = *partition_id;
                         let limit = *limit;
-                        let partition = self.eval_partition_from_calc_node(partition_id);
+                        let partition = self.eval_partition(partition_id);
                         let row_indexes = partition.get_limit_row_indexes(limit);
 
                         CalcResult::RowIndexes(row_indexes)
@@ -1201,9 +1194,7 @@ impl<'a> CalcNodeCtx<'a> {
                         let in_partition_id = *in_partition_id;
                         let row_indexes_id = *row_indexes_id;
 
-                        let in_partition = self
-                            .eval_partition_from_partition_id(in_partition_id)
-                            .clone();
+                        let in_partition = self.eval_partition(in_partition_id).clone();
                         let row_indexes = self.eval_row_indexes(row_indexes_id);
 
                         CalcResult::Partition(in_partition.from_row_indexes(row_indexes))
@@ -1241,12 +1232,9 @@ impl<'a> CalcNodeCtx<'a> {
         }
     }
 
-    fn eval_partition_from_calc_node(&mut self, calc_node_id: CalcNodeId) -> &Partition {
+    fn eval_partition(&mut self, calc_node_id: CalcNodeId) -> &Partition {
         let partition_id = self.get_partition_id(calc_node_id);
-        self.eval_partition_from_partition_id(partition_id)
-    }
 
-    fn eval_partition_from_partition_id(&mut self, partition_id: PartitionId) -> &Partition {
         let result = self.eval_calc_node(partition_id);
         match result {
             CalcResult::Partition(partition) => partition,

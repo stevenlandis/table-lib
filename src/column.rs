@@ -32,6 +32,17 @@ impl Column {
         }
     }
 
+    pub fn from_repeated_bool(val: bool, len: usize) -> Column {
+        Column {
+            col: Rc::new(InnerColumn {
+                nulls: BitVec::from_repeated_value(false, len),
+                values: ColumnValues::Bool(BoolColumnValues {
+                    values: BitVec::from_repeated_value(val, len),
+                }),
+            }),
+        }
+    }
+
     pub fn get_true_indexes(&self) -> Vec<usize> {
         self.col.get_true_indexes()
     }

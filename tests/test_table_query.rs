@@ -144,6 +144,61 @@ mod tests {
     }
 
     #[test]
+    fn where_literal() {
+        let table = Table::from_json_str(
+            r#"
+            {
+                "columns": [
+                    {
+                        "name": "id",
+                        "type": "text",
+                        "values": ["id0", "id1", "id2", "id3"]
+                    },
+                    {
+                        "name": "condition",
+                        "type": "bool",
+                        "values": ["false", "true", null, "true"]
+                    }
+                ]
+            }
+            "#,
+        );
+
+        let mut collection = TableCollection::new();
+        collection.add_table("tbl0", table);
+
+        let result = collection.query("from tbl0 where true get id").unwrap();
+
+        assert_eq!(
+            result,
+            Table::from_json_str(
+                r#"{"columns":[
+                    {
+                        "name": "id",
+                        "type": "text",
+                        "values": ["id0", "id1", "id2", "id3"]
+                    }
+                ]}"#
+            )
+        );
+
+        let result = collection.query("from tbl0 where false get id").unwrap();
+
+        assert_eq!(
+            result,
+            Table::from_json_str(
+                r#"{"columns":[
+                    {
+                        "name": "id",
+                        "type": "text",
+                        "values": []
+                    }
+                ]}"#
+            )
+        );
+    }
+
+    #[test]
     fn basic_group_by_and_get() {
         let table = Table::from_json_str(
             r#"

@@ -157,8 +157,7 @@ impl<'a> CalcNodeCtx<'a> {
                         assert_eq!(left_level, right_level);
                         left_level
                     }
-                    CalcNode::Integer(_) => ROOT_PARTITION_LEVEL,
-                    CalcNode::Float64(_) => ROOT_PARTITION_LEVEL,
+                    CalcNode::Literal(_) => ROOT_PARTITION_LEVEL,
                     CalcNode::ColSpread(_, part_level) => *part_level,
                     CalcNode::TablePartition(_) => ROOT_PARTITION_LEVEL,
                     CalcNode::ScalarPartition => ROOT_PARTITION_LEVEL,
@@ -249,8 +248,7 @@ impl<'a> CalcNodeCtx<'a> {
                         left_is_scalar
                     }
                     CalcNode::ColSpread(source_id, _) => self.is_scalar(*source_id),
-                    CalcNode::Integer(_) => true,
-                    CalcNode::Float64(_) => true,
+                    CalcNode::Literal(_) => true,
                     CalcNode::SpreadScalarCol(_, _) => false,
                     CalcNode::ScalarPartition => true,
                     CalcNode::Selects { col_ids } => {
@@ -448,8 +446,7 @@ impl<'a> CalcNodeCtx<'a> {
                         assert_eq!(left_id, right_id);
                         left_id
                     }
-                    CalcNode::Integer(_) => self.add_calc_node(CalcNode::ScalarPartition),
-                    CalcNode::Float64(_) => self.add_calc_node(CalcNode::ScalarPartition),
+                    CalcNode::Literal(_) => self.add_calc_node(CalcNode::ScalarPartition),
                     CalcNode::GroupByPartition { source_id: _ } => node_id,
                     _ => todo!("Unimplemented for {:?}", self.get_calc_node(node_id)),
                 };
@@ -481,8 +478,15 @@ impl<'a> CalcNodeCtx<'a> {
 
                         result
                     }
-                    CalcNode::Integer(val) => val.to_string(),
-                    CalcNode::Float64(val) => val.val.to_string(),
+                    CalcNode::Literal(literal) => match literal {
+                        CalcNodeLiteral::Integer(val) => val.to_string(),
+                        CalcNodeLiteral::Float64(val) => val.val.to_string(),
+                        CalcNodeLiteral::Bool(val) => match val {
+                            false => "false",
+                            true => "true",
+                        }
+                        .to_string(),
+                    },
                     CalcNode::Alias(_, name) => name.clone(),
                     CalcNode::SpreadScalarCol(source_id, _) => {
                         self.get_calc_node_name(*source_id).to_string()
@@ -549,10 +553,7 @@ impl<'a> CalcNodeCtx<'a> {
                     CalcNode::Add(_, _) => {
                         cols.push(id);
                     }
-                    CalcNode::Integer(_) => {
-                        cols.push(id);
-                    }
-                    CalcNode::Float64(_) => {
+                    CalcNode::Literal(_) => {
                         cols.push(id);
                     }
                     CalcNode::Alias(_, _) => {
@@ -840,9 +841,14 @@ impl<'a> CalcNodeCtx<'a> {
                 let normalized_cols = self.normalize_cols(vec![left_id, right_id]);
                 self.add_calc_node(CalcNode::Add(normalized_cols[0], normalized_cols[1]))
             }
-            AstNodeType::Integer(val) => self.add_calc_node(CalcNode::Integer(*val)),
-            AstNodeType::Float64(val) => {
-                self.add_calc_node(CalcNode::Float64(CalcNodeFloat64 { val: *val }))
+            AstNodeType::Integer(val) => {
+                self.add_calc_node(CalcNode::Literal(CalcNodeLiteral::Integer(*val)))
+            }
+            AstNodeType::Float64(val) => self.add_calc_node(CalcNode::Literal(
+                CalcNodeLiteral::Float64(CalcNodeFloat64 { val: *val }),
+            )),
+            AstNodeType::Bool(val) => {
+                self.add_calc_node(CalcNode::Literal(CalcNodeLiteral::Bool(*val)))
             }
             AstNodeType::Alias { expr, alias } => {
                 let expr_id = self.register_ast_node(ctx, expr);
@@ -1076,12 +1082,11 @@ impl<'a> CalcNodeCtx<'a> {
 
                         CalcResult::Column(&left_col / &right_col)
                     }
-                    CalcNode::Integer(val) => {
-                        CalcResult::Column(Column::from_repeated_f64(*val as f64, 1))
-                    }
-                    CalcNode::Float64(val) => {
-                        CalcResult::Column(Column::from_repeated_f64(val.val, 1))
-                    }
+                    CalcNode::Literal(val) => CalcResult::Column(match val {
+                        CalcNodeLiteral::Integer(val) => Column::from_repeated_f64(*val as f64, 1),
+                        CalcNodeLiteral::Float64(val) => Column::from_repeated_f64(val.val, 1),
+                        CalcNodeLiteral::Bool(val) => Column::from_repeated_bool(*val, 1),
+                    }),
                     CalcNode::ScalarPartition => {
                         CalcResult::Partition(Partition::new_single_partition(1))
                     }
@@ -1302,8 +1307,7 @@ enum CalcNode {
     Count(CalcNodeCount),
     Add(CalcNodeId, CalcNodeId),
     Divide(CalcNodeId, CalcNodeId),
-    Integer(u64),
-    Float64(CalcNodeFloat64),
+    Literal(CalcNodeLiteral),
     Alias(CalcNodeId, String),
     OrderByRowIndexes(OrderByRowIndexes),
     OrderColumn(OrderColumn),
@@ -1312,6 +1316,13 @@ enum CalcNode {
     GetUngroupPartition(CalcNodeGetUngroupPartition),
     LimitRowIndexes(PartitionId, usize),
     AggregatedPartition(PartitionLevel),
+}
+
+#[derive(Debug, PartialEq, Hash, Clone)]
+enum CalcNodeLiteral {
+    Integer(u64),
+    Float64(CalcNodeFloat64),
+    Bool(bool),
 }
 
 impl Eq for CalcNode {}

@@ -588,4 +588,77 @@ mod tests {
 
         assert_eq!(t2, tr);
     }
+
+    #[cfg(test)]
+    mod csv_parse_tests {
+        use table_lib::*;
+
+        #[test]
+        fn basic() {
+            let csv_text = r#"
+col0,col1,col2
+stuff,and,things
+1,2,3
+"#
+            .trim_start();
+
+            let table = Table::from_csv_reader(std::io::Cursor::new(csv_text));
+            assert_eq!(
+                table,
+                Table::from_json_str(
+                    r#"{"columns": [
+                        {"name": "col0", "type": "text", "values": ["stuff", "1"]},
+                        {"name": "col1", "type": "text", "values": ["and", "2"]},
+                        {"name": "col2", "type": "text", "values": ["things", "3"]}
+                    ]}"#,
+                )
+            );
+        }
+
+        #[test]
+        fn infer_col_types() {
+            let csv_text = r#"
+col0,col1,col2
+stuff,1,false
+and,2,true
+"#
+            .trim_start();
+
+            let table = Table::from_csv_reader(std::io::Cursor::new(csv_text));
+            assert_eq!(
+                table,
+                Table::from_json_str(
+                    r#"{"columns": [
+                        {"name": "col0", "type": "text", "values": ["stuff", "and"]},
+                        {"name": "col1", "type": "float64", "values": ["1", "2"]},
+                        {"name": "col2", "type": "bool", "values": ["false", "true"]}
+                    ]}"#,
+                )
+            );
+        }
+
+        #[test]
+        fn infer_col_types_nulls() {
+            let csv_text = r#"
+col0,col1,col2
+,,
+stuff,1,false
+and,2,true
+"#
+            .trim_start();
+
+            let table = Table::from_csv_reader(std::io::Cursor::new(csv_text));
+            println!("{}", table.to_json_str());
+            assert_eq!(
+                table,
+                Table::from_json_str(
+                    r#"{"columns": [
+                        {"name": "col0", "type": "text", "values": [null, "stuff", "and"]},
+                        {"name": "col1", "type": "float64", "values": [null, "1", "2"]},
+                        {"name": "col2", "type": "bool", "values": [null, "false", "true"]}
+                    ]}"#,
+                )
+            );
+        }
+    }
 }

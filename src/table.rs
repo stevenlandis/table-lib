@@ -685,9 +685,8 @@ impl Table {
         }
     }
 
-    pub fn from_csv(file_name: &str) -> Table {
-        let bytes = std::fs::read(file_name).unwrap();
-        let mut reader = csv::Reader::from_reader(bytes.as_slice());
+    pub fn from_csv_reader(reader: impl std::io::Read) -> Table {
+        let mut reader = csv::Reader::from_reader(reader);
 
         let mut col_names = StringVec::new();
         let mut col_values = Vec::<StringVec>::new();
@@ -711,7 +710,7 @@ impl Table {
                     let mut count: usize = 0;
                     for (col_idx, elem) in record.iter().enumerate() {
                         col_values[col_idx].push(elem);
-                        col_nulls[col_idx].push(false);
+                        col_nulls[col_idx].push(elem == "");
                         count += 1;
                     }
 
@@ -724,10 +723,16 @@ impl Table {
             std::iter::zip(&col_names, std::iter::zip(col_nulls, col_values)).map(
                 |(col_name, (col_nul, col_val))| TableColumnWrapper {
                     name: col_name.to_string(),
-                    column: Column::from_str_vec(col_nul, col_val),
+                    column: Column::from_str_vec(col_nul, col_val).infer_col_type(),
                 },
             ),
         )
+    }
+
+    pub fn from_csv(file_name: &str) -> Table {
+        let file_reader = std::fs::File::open(file_name).unwrap();
+
+        Self::from_csv_reader(file_reader)
     }
 }
 

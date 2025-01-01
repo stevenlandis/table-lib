@@ -402,6 +402,96 @@ impl Column {
             col: Rc::new(InnerColumn { nulls, values }),
         }
     }
+
+    pub fn infer_col_type(&self) -> Column {
+        match &self.col.values {
+            ColumnValues::Text(values) => {
+                let mut guess: Option<ColType> = None;
+
+                for (is_null, value) in zip(&self.col.nulls, &values.values) {
+                    if is_null {
+                        continue;
+                    }
+
+                    let this_guess = if value == "true" || value == "false" {
+                        ColType::Bool
+                    } else if value.parse::<f64>().is_ok() {
+                        ColType::Float64
+                    } else {
+                        ColType::Text
+                    };
+
+                    match guess {
+                        None => {
+                            guess = Some(this_guess);
+                        }
+                        Some(inner_guess) => match this_guess {
+                            ColType::Text => {
+                                guess = Some(ColType::Text);
+                            }
+                            ColType::Bool => match inner_guess {
+                                ColType::Bool => {}
+                                _ => {
+                                    guess = Some(ColType::Text);
+                                }
+                            },
+                            ColType::Float64 => match inner_guess {
+                                ColType::Float64 => {}
+                                _ => {
+                                    guess = Some(ColType::Text);
+                                }
+                            },
+                        },
+                    }
+                }
+
+                let guess = guess.unwrap_or(ColType::Text);
+
+                match guess {
+                    ColType::Text => self.clone(),
+                    ColType::Bool => {
+                        let mut out_values = BitVec::with_capacity(self.len());
+                        for (is_null, value) in zip(&self.col.nulls, &values.values) {
+                            if is_null {
+                                out_values.push(false);
+                            } else {
+                                out_values.push(match value {
+                                    "false" => false,
+                                    "true" => true,
+                                    _ => panic!(),
+                                });
+                            }
+                        }
+                        Column {
+                            col: Rc::new(InnerColumn {
+                                nulls: self.col.nulls.clone(),
+                                values: ColumnValues::Bool(BoolColumnValues { values: out_values }),
+                            }),
+                        }
+                    }
+                    ColType::Float64 => {
+                        let mut out_values = Vec::<f64>::with_capacity(self.len());
+                        for (is_null, value) in zip(&self.col.nulls, &values.values) {
+                            if is_null {
+                                out_values.push(0.0);
+                            } else {
+                                out_values.push(value.parse::<f64>().unwrap());
+                            }
+                        }
+                        Column {
+                            col: Rc::new(InnerColumn {
+                                nulls: self.col.nulls.clone(),
+                                values: ColumnValues::Float64(Float64ColumnValues {
+                                    values: out_values,
+                                }),
+                            }),
+                        }
+                    }
+                }
+            }
+            _ => self.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Hash)]

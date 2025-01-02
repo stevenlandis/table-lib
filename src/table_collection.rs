@@ -450,6 +450,7 @@ impl<'a> CalcNodeCtx<'a> {
                     }
                     CalcNode::Literal(_) => self.add_calc_node(CalcNode::ScalarPartition),
                     CalcNode::GroupByPartition { source_id: _ } => node_id,
+                    CalcNode::GetUngroupPartition(_) => node_id,
                     _ => todo!("Unimplemented for {:?}", self.get_calc_node(node_id)),
                 };
                 self.calc_node_to_partition_id.insert(node_id, result);
@@ -515,6 +516,7 @@ impl<'a> CalcNodeCtx<'a> {
 
                         result
                     }
+                    CalcNode::ColSpread(info) => self.get_calc_node_name(info.col_id).to_string(),
                     _ => todo!("unimplemented for {:?}", self.get_calc_node(col_id)),
                 };
                 self.name_cache.insert(col_id, name);

@@ -711,4 +711,68 @@ mod tests {
             )
         );
     }
+
+    #[test]
+    fn double_aggregated_scalar_addition() {
+        let table = Table::from_json_str(
+            r#"
+            {
+                "columns": [
+                    {
+                        "name": "id0",
+                        "type": "text",
+                        "values": ["id0", "id0", "id0", "id1", "id2", "id1"]
+                    },
+                    {
+                        "name": "id1",
+                        "type": "text",
+                        "values": ["x", "x", "y", "x", "x", "x"]
+                    },
+                    {
+                        "name": "val",
+                        "type": "float64",
+                        "values": ["1", "2", "3", "4", "6", "5"]
+                    }
+                ]
+            }
+            "#,
+        );
+
+        let mut collection = TableCollection::new();
+        collection.add_table("tbl0", table);
+
+        let result = collection
+            .query(
+                r#"
+                from tbl0
+                group by id0 get id0, (
+                    group by id1 get id1, val + 1 as val
+                )
+                "#,
+            )
+            .unwrap();
+
+        assert_eq!(
+            result,
+            Table::from_json_str(
+                r#"{"columns":[
+                    {
+                        "name": "id0",
+                        "type": "text",
+                        "values": ["id0", "id0", "id0", "id1", "id1", "id2"]
+                    },
+                    {
+                        "name": "id1",
+                        "type": "text",
+                        "values": ["x", "x", "y", "x", "x", "x"]
+                    },
+                    {
+                        "name": "val",
+                        "type": "float64",
+                        "values": ["2", "3", "4", "5", "6", "7"]
+                    }
+                ]}"#
+            )
+        );
+    }
 }

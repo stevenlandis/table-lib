@@ -703,9 +703,9 @@ mod tests {
                         "values": ["id0", "id0", "id0", "id1", "id1", "id2"]
                     },
                     {
-                        "name": "id",
+                        "name": "val",
                         "type": "float64",
-                        "values": ["8", "9", "10", "14", "15", "1"]
+                        "values": ["8", "9", "10", "14", "15", null]
                     }
                 ]}"#
             )

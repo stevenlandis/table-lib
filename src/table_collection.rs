@@ -55,6 +55,8 @@ impl TableCollection {
             .cloned()
             .collect::<Vec<_>>();
 
+        // calc_ctx._print_debug();
+
         let table = Table::from_columns(col_ids.iter().cloned().map(|col_id| TableColumnWrapper {
             name: calc_ctx.get_calc_node_name(col_id).to_string(),
             column: calc_ctx.eval_column(col_id).clone(),
@@ -154,7 +156,7 @@ impl<'a> CalcNodeCtx<'a> {
                         left_level
                     }
                     CalcNode::Literal(_) => ROOT_PARTITION_LEVEL,
-                    CalcNode::ColSpread(_, part_level) => *part_level,
+                    CalcNode::ColSpread(info) => self.get_partition_level(info.result_partition_id),
                     CalcNode::TablePartition(_) => ROOT_PARTITION_LEVEL,
                     CalcNode::ScalarPartition => ROOT_PARTITION_LEVEL,
                     CalcNode::SpreadScalarCol(source_id, _) => self.get_partition_level(*source_id),
@@ -197,7 +199,6 @@ impl<'a> CalcNodeCtx<'a> {
                         self.get_partition_level(*partition_id)
                     }
                     _ => {
-                        // self._print_debug();
                         todo!("Unimplemented for {:?}", self.get_calc_node(calc_node_id))
                     }
                 };
@@ -227,9 +228,9 @@ impl<'a> CalcNodeCtx<'a> {
         return false;
     }
 
-    fn spread_col(&mut self, col_id: CalcNodeId, new_part_level: PartitionLevel) -> CalcNodeId {
-        self.add_calc_node(CalcNode::ColSpread(col_id, new_part_level))
-    }
+    // fn spread_col(&mut self, col_id: CalcNodeId, new_part_level: PartitionLevel) -> CalcNodeId {
+    //     self.add_calc_node(CalcNode::ColSpread(col_id, new_part_level))
+    // }
 
     fn is_scalar(&mut self, node_id: CalcNodeId) -> bool {
         match self.calc_node_to_is_scalar.get(&node_id) {
@@ -246,7 +247,7 @@ impl<'a> CalcNodeCtx<'a> {
                         assert_eq!(left_is_scalar, right_is_scalar);
                         left_is_scalar
                     }
-                    CalcNode::ColSpread(source_id, _) => self.is_scalar(*source_id),
+                    CalcNode::ColSpread(info) => self.is_scalar(info.col_id),
                     CalcNode::Literal(_) => true,
                     CalcNode::SpreadScalarCol(_, _) => false,
                     CalcNode::ScalarPartition => true,
@@ -328,7 +329,16 @@ impl<'a> CalcNodeCtx<'a> {
         }
 
         for idx in (0..part_levels.len() - 1).rev() {
-            col_id = self.spread_col(col_id, part_levels[idx]);
+            let from_partition_id = part_levels[idx + 1];
+            let to_partition_id = part_levels[idx];
+            let result_partition_id =
+                self.add_calc_node(CalcNode::AggregatedPartition(to_partition_id));
+            col_id = self.add_calc_node(CalcNode::ColSpread(CalcNodeColSpread {
+                col_id,
+                from_partition_id,
+                to_partition_id,
+                result_partition_id,
+            }));
         }
 
         let to_scalar = self.is_scalar(to_partition_id);
@@ -388,10 +398,6 @@ impl<'a> CalcNodeCtx<'a> {
 
         let lowest = lowest.unwrap();
 
-        if lowest.part_id == 8 {
-            println!("Normalie to {}", lowest.part_id);
-        }
-
         for col_id in &mut col_ids {
             *col_id = self.normalize_col_to(*col_id, lowest.part_id);
         }
@@ -414,14 +420,11 @@ impl<'a> CalcNodeCtx<'a> {
                         left_is_scalar
                     }
                     CalcNode::SpreadScalarCol(_, partition_id) => *partition_id,
+                    CalcNode::ColSpread(info) => info.result_partition_id,
                     CalcNode::Selects { col_ids } => {
                         let col_ids = col_ids.clone();
                         let part_id = self.get_partition_id(col_ids[0]);
                         for col_id in &col_ids {
-                            if part_id != self.get_partition_id(*col_id) {
-                                self._print_debug();
-                            }
-
                             assert_eq!(part_id, self.get_partition_id(*col_id));
                         }
                         part_id
@@ -1099,6 +1102,14 @@ impl<'a> CalcNodeCtx<'a> {
 
                         CalcResult::Column(new_col)
                     }
+                    CalcNode::ColSpread(info) => {
+                        let info = *info;
+                        let source_col = self.eval_column(info.col_id).clone();
+                        let from_partition = self.eval_partition(info.from_partition_id).clone();
+                        let to_partition = self.eval_partition(info.to_partition_id).clone();
+
+                        CalcResult::Column(source_col.spread_scalar(&from_partition, &to_partition))
+                    }
                     CalcNode::RePartition(info) => {
                         let col_id = info.col_id;
                         let col = self.eval_column(col_id).clone();
@@ -1204,7 +1215,6 @@ impl<'a> CalcNodeCtx<'a> {
                         CalcResult::RowIndexes(col.get_true_indexes())
                     }
                     CalcNode::Selects { col_ids: _ } => {
-                        self._print_debug();
                         panic!("Invalid select for id={}", calc_node_id);
                     }
                     _ => todo!("unimplemented for {:?}", self.get_calc_node(calc_node_id)),
@@ -1247,19 +1257,17 @@ impl<'a> CalcNodeCtx<'a> {
         for calc_node_id in 0..self.calc_nodes.len() {
             let calc_node = &self.calc_nodes[calc_node_id];
             println!("{}: {:?}", calc_node_id, calc_node);
-            // let col_ids = self
-            //     .get_calc_node_cols(calc_node_id)
-            //     .iter()
-            //     .cloned()
-            //     .collect::<Vec<_>>();
-
-            // for (col_idx, col_id) in col_ids.iter().cloned().enumerate() {
-            //     println!(
-            //         "  - {}: {}",
-            //         col_id,
-            //         self.get_calc_node_name2(calc_node_id, col_idx)
-            //     );
-            // }
+            if match calc_node {
+                CalcNode::ColSpread(_) => true,
+                CalcNode::SpreadScalarCol(_, _) => true,
+                _ => false,
+            } {
+                println!(
+                    "  - partition={}, level={}",
+                    self.get_partition_id(calc_node_id),
+                    self.get_partition_level(calc_node_id)
+                );
+            }
         }
     }
 }
@@ -1292,7 +1300,7 @@ enum CalcNode {
     Alias(CalcNodeId, String),
     OrderByRowIndexes(OrderByRowIndexes),
     OrderColumn(OrderColumn),
-    ColSpread(CalcNodeId, PartitionLevel),
+    ColSpread(CalcNodeColSpread),
     SpreadScalarCol(CalcNodeId, PartitionId),
     GetUngroupPartition(CalcNodeGetUngroupPartition),
     LimitRowIndexes(PartitionId, usize),
@@ -1339,6 +1347,14 @@ struct CalcNodeGetUngroupPartition {
     source_id: CalcNodeId,
     group_partition_id: CalcNodeId,
     result_id: CalcNodeId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Hash)]
+struct CalcNodeColSpread {
+    col_id: CalcNodeId,
+    from_partition_id: PartitionId,
+    to_partition_id: PartitionId,
+    result_partition_id: PartitionId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Hash)]

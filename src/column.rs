@@ -216,6 +216,31 @@ impl Column {
         self.from_indexes(&indexes)
     }
 
+    pub fn spread_scalar(&self, from_partition: &Partition, to_partition: &Partition) -> Column {
+        assert_eq!(self.len(), from_partition.n_spans());
+        assert_eq!(from_partition.n_rows(), to_partition.n_rows());
+
+        let mut indexes = Vec::<usize>::with_capacity(to_partition.n_spans());
+
+        let mut to_span_idx: usize = 0;
+        let to_spans = to_partition.spans();
+        for (from_span_idx, from_span) in from_partition.spans().iter().enumerate() {
+            let target_len = from_span.len;
+            let mut len: usize = 0;
+            while len < target_len {
+                len += to_spans[to_span_idx].len;
+                to_span_idx += 1;
+
+                indexes.push(from_span_idx);
+            }
+            assert_eq!(len, target_len);
+        }
+
+        assert_eq!(indexes.len(), to_partition.n_spans());
+
+        self.from_indexes(&indexes)
+    }
+
     pub fn group_by(group_cols: &[Column], partition: &Partition) -> (Partition, Vec<usize>) {
         let inner_group_cols = group_cols
             .iter()
@@ -838,15 +863,13 @@ impl InnerColumn {
                     let mut out_nulls = BitVec::new();
                     let mut out_values = Vec::<f64>::with_capacity(partition.n_spans());
                     for span in partition {
-                        let mut has_non_null = false;
                         let mut val: f64 = 0.0;
                         for row_idx in span {
                             if !self.nulls.at(row_idx) {
-                                has_non_null = true;
                                 val += values.values[row_idx];
                             }
                         }
-                        out_nulls.push(!has_non_null);
+                        out_nulls.push(false);
                         out_values.push(val);
                     }
 

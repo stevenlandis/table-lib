@@ -3,9 +3,9 @@ use std::rc::Rc;
 use crate::bit_vec::BitVec;
 
 #[derive(Clone)]
-struct Span {
+pub struct Span {
     start: usize,
-    len: usize,
+    pub len: usize,
 }
 
 #[derive(Clone)]
@@ -101,9 +101,6 @@ impl Partition {
 
                 let agg_span = &aggregated.spans[span_idx];
                 agg_row_count += agg_span.len;
-                // for idx in &aggregated.row_indexes[agg_span.start..agg_span.start + agg_span.len] {
-                //     // result.add_row_idx(*idx);
-                // }
 
                 span_idx += 1;
             }
@@ -117,6 +114,10 @@ impl Partition {
 
     pub fn iter(&self) -> PartitionIter {
         self.into_iter()
+    }
+
+    pub fn spans(&self) -> &Vec<Span> {
+        &self.rc.spans
     }
 
     pub fn get_limit_row_indexes(&self, limit: usize) -> Vec<usize> {

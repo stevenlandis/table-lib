@@ -777,6 +777,56 @@ mod tests {
     }
 
     #[test]
+    fn multi_row_agg_fcn() {
+        let table = Table::from_json_str(
+            r#"
+            {
+                "columns": [
+                    {
+                        "name": "id0",
+                        "type": "text",
+                        "values": ["id0", "id1", "id0", "id0", "id2", "id2", "id2", "id2"]
+                    },
+                    {
+                        "name": "val",
+                        "type": "float64",
+                        "values": ["0", "1", "2", "3", "4", "5", "6", "7"]
+                    }
+                ]
+            }
+            "#,
+        );
+
+        let mut collection = TableCollection::new();
+        collection.add_table("tbl0", table);
+
+        let result = collection
+            .query(
+                r#"from tbl0 group by id0 get (limit 2)
+                "#,
+            )
+            .unwrap();
+
+        assert_eq!(
+            result,
+            Table::from_json_str(
+                r#"{"columns":[
+                    {
+                        "name": "id0",
+                        "type": "text",
+                        "values": ["id0", "id0", "id1", "id2", "id2"]
+                    },
+                    {
+                        "name": "val",
+                        "type": "float64",
+                        "values": ["0", "2", "1", "4", "5"]
+                    }
+                ]}"#
+            )
+        );
+    }
+
+    #[test]
     fn basic_window() {
         let table = Table::from_json_str(
             r#"

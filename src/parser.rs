@@ -76,6 +76,7 @@ impl<'a> Parser<'a> {
             "sort" => true,
             "asc" => true,
             "desc" => true,
+            "limit" => true,
             _ => false,
         } {
             return None;

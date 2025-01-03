@@ -1,5 +1,5 @@
 use core::panic;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     ast_node::{AstNode, AstNodeType},
@@ -314,7 +314,7 @@ impl<'a> CalcNodeCtx<'a> {
             assert_eq!(partition_level, self.get_partition_level(*col_id));
         }
 
-        self.add_calc_node(CalcNode::Selects { col_ids })
+        self.add_selects(col_ids)
     }
 
     fn normalize_col_to(&mut self, col_id: CalcNodeId, to_partition_id: PartitionId) -> CalcNodeId {
@@ -617,7 +617,7 @@ impl<'a> CalcNodeCtx<'a> {
             col_ids.extend(self.get_calc_node_cols(select_id));
         }
 
-        self.add_calc_node(CalcNode::Selects { col_ids })
+        self.add_selects(col_ids)
     }
 
     fn get_ast_col_ids(&mut self, ctx: &RegisterAstNodeCtx, node: &AstNode) -> Vec<CalcNodeId> {
@@ -655,9 +655,7 @@ impl<'a> CalcNodeCtx<'a> {
             AstNodeType::SelectStmt(selects) => {
                 let select_node_ids = self.get_ast_col_ids(ctx, selects);
 
-                self.add_calc_node(CalcNode::Selects {
-                    col_ids: select_node_ids,
-                })
+                self.add_selects(select_node_ids)
             }
             AstNodeType::Identifier(col_name) => {
                 let col_idx = self.get_calc_node_col_idx(ctx.parent_id, col_name);
@@ -696,9 +694,7 @@ impl<'a> CalcNodeCtx<'a> {
                     })
                     .collect::<Vec<_>>();
 
-                self.add_calc_node(CalcNode::Selects {
-                    col_ids: result_col_ids,
-                })
+                self.add_selects(result_col_ids)
             }
             AstNodeType::GroupBy { group_by, get_expr } => {
                 // This block decomposes the group_by statment into a series of
@@ -762,14 +758,24 @@ impl<'a> CalcNodeCtx<'a> {
                     })
                     .collect::<Vec<_>>();
 
-                let all_select_col_ids = select_col_ids
+                let group_col_names = group_col_ids
                     .iter()
-                    .chain(group_col_ids.iter())
+                    .cloned()
+                    .map(|col_id| self.get_calc_node_name(col_id).to_string())
+                    .collect::<HashSet<_>>();
+
+                let select_col_ids = select_col_ids
+                    .iter()
+                    .cloned()
+                    .filter(|col_id| !group_col_names.contains(self.get_calc_node_name(*col_id)))
+                    .collect::<Vec<_>>();
+
+                let all_select_col_ids = group_col_ids
+                    .iter()
+                    .chain(select_col_ids.iter())
                     .cloned()
                     .collect::<Vec<_>>();
-                let base_select_node = self.add_calc_node(CalcNode::Selects {
-                    col_ids: all_select_col_ids,
-                });
+                let base_select_node = self.add_selects(all_select_col_ids);
 
                 let select_stmt = self.register_select_list(
                     &RegisterAstNodeCtx {
@@ -799,9 +805,7 @@ impl<'a> CalcNodeCtx<'a> {
                     .map(|col_id| self.repartition(*col_id, ungroup_partition))
                     .collect::<Vec<_>>();
 
-                self.add_calc_node(CalcNode::Selects {
-                    col_ids: ungrouped_col_ids,
-                })
+                self.add_selects(ungrouped_col_ids)
             }
             AstNodeType::Window(window_size, get_expr) => {
                 let window_size = *window_size;
@@ -835,9 +839,7 @@ impl<'a> CalcNodeCtx<'a> {
                     })
                     .collect::<Vec<_>>();
 
-                let inner_select_id = self.add_calc_node(CalcNode::Selects {
-                    col_ids: inner_col_ids,
-                });
+                let inner_select_id = self.add_selects(inner_col_ids);
 
                 let get_id = self.register_select_list(
                     &RegisterAstNodeCtx {
@@ -867,9 +869,7 @@ impl<'a> CalcNodeCtx<'a> {
                     .map(|col_id| self.repartition(col_id, out_partition_id))
                     .collect::<Vec<_>>();
 
-                self.add_calc_node(CalcNode::Selects {
-                    col_ids: get_col_ids,
-                })
+                self.add_selects(get_col_ids)
             }
             AstNodeType::FcnCall { name, args } => {
                 let fcn_name = match name.get_type() {
@@ -962,9 +962,7 @@ impl<'a> CalcNodeCtx<'a> {
                     }
                 }
 
-                let order_cols_id = self.add_calc_node(CalcNode::Selects {
-                    col_ids: order_col_ids,
-                });
+                let order_cols_id = self.add_selects(order_col_ids);
                 let order_cols_id = self.normalize(order_cols_id);
 
                 let row_indexes_id =
@@ -993,17 +991,19 @@ impl<'a> CalcNodeCtx<'a> {
                         }))
                     })
                     .collect::<Vec<_>>();
-                self.add_calc_node(CalcNode::Selects {
-                    col_ids: output_col_ids,
-                })
+
+                self.add_selects(output_col_ids)
             }
             AstNodeType::Limit(limit) => {
+                let normalized_source = self.normalize(ctx.parent_id);
+
                 let in_col_ids = self
-                    .get_calc_node_cols(ctx.parent_id)
+                    .get_calc_node_cols(normalized_source)
                     .iter()
                     .cloned()
                     .collect::<Vec<_>>();
-                let in_partition_id = self.get_partition_id(ctx.parent_id);
+
+                let in_partition_id = self.get_partition_id(normalized_source);
                 let row_indexes_id =
                     self.add_calc_node(CalcNode::LimitRowIndexes(in_partition_id, *limit));
 
@@ -1024,12 +1024,27 @@ impl<'a> CalcNodeCtx<'a> {
                     })
                     .collect::<Vec<_>>();
 
-                self.add_calc_node(CalcNode::Selects {
-                    col_ids: out_col_ids,
-                })
+                self.add_selects(out_col_ids)
             }
             _ => todo!("Unknown type {:?}", node),
         }
+    }
+
+    fn add_selects(&mut self, col_ids: Vec<CalcNodeId>) -> CalcNodeId {
+        let mut reached_names = HashSet::<String>::new();
+        let mut col_ids = col_ids
+            .iter()
+            .rev()
+            .filter_map(|col_id| {
+                match reached_names.insert(self.get_calc_node_name(*col_id).to_string()) {
+                    false => None,
+                    true => Some(*col_id),
+                }
+            })
+            .collect::<Vec<_>>();
+        col_ids.reverse();
+
+        self.add_calc_node(CalcNode::Selects { col_ids })
     }
 
     fn add_division(&mut self, left_id: CalcNodeId, right_id: CalcNodeId) -> CalcNodeId {
@@ -1095,7 +1110,7 @@ impl<'a> CalcNodeCtx<'a> {
                     })
                     .collect::<Vec<_>>();
 
-                let node_id = self.add_calc_node(CalcNode::Selects { col_ids });
+                let node_id = self.add_selects(col_ids);
 
                 self.registered_tables.insert(name.to_string(), node_id);
             }
@@ -1229,7 +1244,6 @@ impl<'a> CalcNodeCtx<'a> {
                         let info = *info;
                         let source_col = self.eval_column(info.col_id).clone();
                         let row_indexes = self.eval_row_indexes(info.row_indexes_id);
-
                         CalcResult::Column(source_col.from_indexes(row_indexes))
                     }
                     CalcNode::OrderByRowIndexes(info) => {

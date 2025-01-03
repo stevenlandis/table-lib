@@ -760,6 +760,7 @@ impl std::fmt::Display for Table {
             Ok(())
         }
 
+        let n_rows = self.get_n_rows();
         let n_cols = self.get_n_cols();
         let mut col_names = StringVec::new();
         let mut col_types = StringVec::new();
@@ -829,7 +830,14 @@ impl std::fmt::Display for Table {
         }
         wstr(out, "\n")?;
 
-        for row_idx in 0..self.get_n_rows() {
+        let row_limit = 10;
+        let (n_leading_rows, n_trailing_rows) = if n_rows <= row_limit {
+            (n_rows, 0)
+        } else {
+            (row_limit >> 1, row_limit >> 1)
+        };
+
+        for row_idx in 0..n_leading_rows {
             for col_idx in 0..n_cols {
                 if col_idx == 0 {
                     wstr(out, "| ")?;
@@ -840,6 +848,31 @@ impl std::fmt::Display for Table {
                 wpad(out, &out_cols[col_idx][row_idx], width)?;
                 wstr(out, " |")?;
             }
+
+            wstr(out, "\n")?;
+        }
+
+        if n_trailing_rows > 0 {
+            wstr(out, "|")?;
+            let total_width = col_widths.iter().fold(0, |acc, width| acc + width + 3) - 1;
+            for _ in 0..total_width {
+                wstr(out, ".")?;
+            }
+            wstr(out, "|\n")?;
+        }
+
+        for row_idx in (n_rows - n_trailing_rows)..n_rows {
+            for col_idx in 0..n_cols {
+                if col_idx == 0 {
+                    wstr(out, "| ")?;
+                } else {
+                    wstr(out, " ")?;
+                }
+                let width = col_widths[col_idx];
+                wpad(out, &out_cols[col_idx][row_idx], width)?;
+                wstr(out, " |")?;
+            }
+
             wstr(out, "\n")?;
         }
 

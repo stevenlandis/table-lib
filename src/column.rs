@@ -517,6 +517,22 @@ impl Column {
             _ => self.clone(),
         }
     }
+
+    pub fn repeat_for_window(&self, window_size: usize, in_partition: &Partition) -> Column {
+        let mut row_indexes = Vec::<usize>::new();
+        for span in in_partition {
+            let target_size = span.len();
+            if target_size < window_size {
+                row_indexes.extend(span);
+            } else {
+                for offset in 0..(target_size + 1 - window_size) {
+                    row_indexes.extend((span.start + offset)..(span.start + offset + window_size));
+                }
+            }
+        }
+
+        self.from_indexes(&row_indexes)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Hash)]
@@ -594,28 +610,6 @@ impl InnerColumn {
     pub fn get_type_name(&self) -> String {
         self.get_type().to_string()
     }
-
-    // pub fn eq_at_indexes(&self, left_idx: usize, right_idx: usize) -> bool {
-    //     if self.nulls.at(left_idx) != self.nulls.at(right_idx) {
-    //         return false;
-    //     }
-    //     if self.nulls.at(left_idx) {
-    //         return true;
-    //     }
-
-    //     match &self.values {
-    //         ColumnValues::Text(inner_col) => {
-    //             return inner_col.records[left_idx].start_idx
-    //                 == inner_col.records[right_idx].start_idx;
-    //         }
-    //         ColumnValues::Float64(inner_col) => {
-    //             return inner_col.values[left_idx] == inner_col.values[right_idx];
-    //         }
-    //         ColumnValues::Bool(inner_col) => {
-    //             return inner_col.values.at(left_idx) == inner_col.values.at(right_idx);
-    //         }
-    //     }
-    // }
 
     pub fn get_true_indexes(&self) -> Vec<usize> {
         let nulls = &self.nulls;
@@ -915,6 +909,39 @@ impl InnerColumn {
                     panic!("Unsupported FIRST agg for this col type");
                 }
             },
+            AggregationType::Last => match &self.values {
+                ColumnValues::Float64(values) => {
+                    let mut out_nulls = BitVec::new();
+                    let mut out_values = Vec::<f64>::with_capacity(partition.n_spans());
+                    for span in partition {
+                        let first_row_idx = span.into_iter().last().unwrap();
+                        out_nulls.push(self.nulls.at(first_row_idx));
+                        out_values.push(values.values[first_row_idx]);
+                    }
+
+                    InnerColumn {
+                        nulls: out_nulls,
+                        values: ColumnValues::Float64(Float64ColumnValues { values: out_values }),
+                    }
+                }
+                ColumnValues::Text(values) => {
+                    let mut builder = TextColBuilder::new(partition.n_spans());
+
+                    for span in partition {
+                        let first_row_idx = span.into_iter().last().unwrap();
+                        if self.nulls.at(first_row_idx) {
+                            builder.add_null();
+                        } else {
+                            builder.add_value(values.get_str_at_idx(first_row_idx));
+                        }
+                    }
+
+                    builder.to_col()
+                }
+                _ => {
+                    panic!("Unsupported LAST agg for this col type");
+                }
+            },
         };
     }
 
@@ -960,6 +987,25 @@ impl InnerColumn {
                         let first_row_idx = row_indexes[group.start_idx];
                         out_nulls.push(self.nulls.at(first_row_idx));
                         out_values.push(values.values[first_row_idx]);
+                    }
+
+                    InnerColumn {
+                        nulls: out_nulls,
+                        values: ColumnValues::Float64(Float64ColumnValues { values: out_values }),
+                    }
+                }
+                _ => {
+                    panic!("Unsupported FIRST agg for this col type");
+                }
+            },
+            AggregationType::Last => match &self.values {
+                ColumnValues::Float64(values) => {
+                    let mut out_nulls = BitVec::new();
+                    let mut out_values = Vec::<f64>::with_capacity(groups.len());
+                    for group in groups {
+                        let last_row_idx = row_indexes[group.start_idx + group.len - 1];
+                        out_nulls.push(self.nulls.at(last_row_idx));
+                        out_values.push(values.values[last_row_idx]);
                     }
 
                     InnerColumn {
@@ -1302,11 +1348,9 @@ impl InnerColumn {
                 }
                 part_builder.add_span(span_len);
             }
-            // part_lens.push(group_first_indexes.len());
         }
 
         (part_builder.to_partition(), row_indexes)
-        // (part_builder.to_partition(), part_lens)
     }
 }
 
@@ -1438,6 +1482,17 @@ pub struct BoolColumnValues {
 pub enum AggregationType {
     Sum,
     First,
+    Last,
+}
+
+impl AggregationType {
+    pub fn get_name(&self) -> &str {
+        match self {
+            AggregationType::First => "first",
+            AggregationType::Last => "last",
+            AggregationType::Sum => "sum",
+        }
+    }
 }
 
 pub struct Group {

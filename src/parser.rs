@@ -71,6 +71,7 @@ impl<'a> Parser<'a> {
             "or" => true,
             "group" => true,
             "by" => true,
+            "window" => true,
             "get" => true,
             "sort" => true,
             "asc" => true,
@@ -609,16 +610,13 @@ impl<'a> Parser<'a> {
                     Ok(expr) => Some(Ok(AstNode::new(AstNodeType::WhereStmt(expr)))),
                 },
             }
-        } else if self.parse_str_literal("group") {
-            if !self.parse_at_least_one_ws() {
-                return Some(Err(self.get_err(ParseErrorType::MissingSpaceAfterGroup)));
-            }
-
-            if !self.parse_str_literal("by") {
+        } else if self.parse_str_literal_word("group") {
+            self.parse_ws();
+            if !self.parse_str_literal_word("by") {
                 return Some(Err(self.get_err(ParseErrorType::MissingBy)));
             }
-            self.parse_ws();
 
+            self.parse_ws();
             let group_by = match self.parse_comma_separated_expr() {
                 None => return Some(Err(self.get_err(ParseErrorType::GroupByMissingGroupByField))),
                 Some(expr) => match expr {
@@ -628,17 +626,11 @@ impl<'a> Parser<'a> {
             };
 
             self.parse_ws();
-
-            if !self.parse_str_literal("get") {
+            if !self.parse_str_literal_word("get") {
                 return Some(Err(self.get_err(ParseErrorType::MissingGroupByGet)));
             }
 
-            if !self.parse_at_least_one_ws() {
-                return Some(Err(
-                    self.get_err(ParseErrorType::MissingSpaceAfterGroupByGet)
-                ));
-            }
-
+            self.parse_ws();
             let get_expr = match self.parse_comma_separated_expr() {
                 None => return Some(Err(self.get_err(ParseErrorType::GroupByMissingGet))),
                 Some(expr) => match expr {
@@ -705,6 +697,31 @@ impl<'a> Parser<'a> {
             };
 
             Some(Ok(AstNode::new(AstNodeType::Limit(limit as usize))))
+        } else if self.parse_str_literal_word("window") {
+            self.parse_ws();
+            let window_size = match self.parse_integer() {
+                None => return Some(Err(self.get_err(ParseErrorType::MissingWindowSize))),
+                Some(window_size) => window_size,
+            };
+
+            self.parse_ws();
+            if !self.parse_str_literal_word("get") {
+                return Some(Err(self.get_err(ParseErrorType::WindowByMissingGet)));
+            }
+
+            self.parse_ws();
+            let get_expr = match self.parse_comma_separated_expr() {
+                None => return Some(Err(self.get_err(ParseErrorType::WindowByMissingGet))),
+                Some(expr) => match expr {
+                    Err(err) => return Some(Err(err)),
+                    Ok(expr) => expr,
+                },
+            };
+
+            Some(Ok(AstNode::new(AstNodeType::Window(
+                window_size as usize,
+                get_expr,
+            ))))
         } else {
             None
         }
@@ -1085,6 +1102,8 @@ enum ParseErrorType {
     MissingSpaceAfterFrom,
     MissingSpaceAfterWhere,
     MissingSpaceAfterGroup,
+    MissingWindowSize,
+    WindowByMissingGet,
     NoExprAfterOperator,
     NoExprAfterUnaryOperator,
     NoParenContents,

@@ -30,6 +30,7 @@ pub enum AstNodeType {
     },
     OrderBy(AstNode),
     Limit(usize),
+    Window(usize, AstNode),
     SortFieldWithDirection(AstNode, SortOrderDirection),
     Null,
     // SubString(String),

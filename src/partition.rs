@@ -139,19 +139,21 @@ impl Partition {
         result_builder.to_partition()
     }
 
-    // pub fn limit(&self, limit: usize) -> Partition {
-    //     let mut n_rows: usize = 0;
-    //     let mut spans = Vec::<Span>::with_capacity(self.rc.spans.len());
-    //     for span in &self.rc.spans {
-    //         let len = span.len.min(limit);
-    //         spans.push(Span { start: n_rows, len });
-    //         n_rows += len;
-    //     }
+    pub fn get_window_partition(&self, window_size: usize) -> Partition {
+        let mut builder = PartitionBuilder::new();
+        for span in self {
+            let target_size = span.len();
+            if target_size < window_size {
+                builder.add_span(target_size);
+            } else {
+                for _ in 0..(target_size + 1 - window_size) {
+                    builder.add_span(window_size);
+                }
+            }
+        }
 
-    //     Partition {
-    //         rc: Rc::new(InnerPartition { spans }),
-    //     }
-    // }
+        builder.to_partition()
+    }
 }
 
 struct InnerPartition {

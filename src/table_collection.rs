@@ -198,6 +198,16 @@ impl<'a> CalcNodeCtx<'a> {
                     CalcNode::PartitionFromRowIndexes(partition_id, _) => {
                         self.get_partition_level(*partition_id)
                     }
+                    CalcNode::WindowInnerCol(info) => {
+                        self.get_partition_level(info.inner_partition_id)
+                    }
+                    CalcNode::InnerWindowPartition(info) => {
+                        let parent_level = self.get_partition_level(info.in_partition_id);
+                        self.get_new_partition_level(calc_node_id, parent_level)
+                    }
+                    CalcNode::WindowUnpartition(info) => {
+                        self.get_partition_level(info.in_partition_id)
+                    }
                     _ => {
                         todo!("Unimplemented for {:?}", self.get_calc_node(calc_node_id))
                     }
@@ -259,7 +269,7 @@ impl<'a> CalcNodeCtx<'a> {
                         }
                         is_scalar
                     }
-                    CalcNode::RePartition(info) => self.is_scalar(info.col_id),
+                    CalcNode::RePartition(info) => self.is_scalar(info.partition),
                     CalcNode::Alias(col_id, _) => self.is_scalar(*col_id),
                     CalcNode::OrderColumn(info) => self.is_scalar(info.col_id),
                     CalcNode::ReOrderAndRePartition(info) => self.is_scalar(info.col_id),
@@ -283,6 +293,7 @@ impl<'a> CalcNodeCtx<'a> {
                     CalcNode::PartitionFromRowIndexes(partition_id, _) => {
                         self.is_scalar(*partition_id)
                     }
+                    CalcNode::WindowUnpartition(info) => self.is_scalar(info.in_partition_id),
                     _ => todo!("Unimplemented for {:?}", self.get_calc_node(node_id)),
                 };
                 self.calc_node_to_is_scalar.insert(node_id, result);
@@ -451,6 +462,8 @@ impl<'a> CalcNodeCtx<'a> {
                     CalcNode::Literal(_) => self.add_calc_node(CalcNode::ScalarPartition),
                     CalcNode::GroupByPartition { source_id: _ } => node_id,
                     CalcNode::GetUngroupPartition(_) => node_id,
+                    CalcNode::WindowInnerCol(info) => info.inner_partition_id,
+                    CalcNode::InnerWindowPartition(_) => node_id,
                     _ => todo!("Unimplemented for {:?}", self.get_calc_node(node_id)),
                 };
                 self.calc_node_to_partition_id.insert(node_id, result);
@@ -506,10 +519,7 @@ impl<'a> CalcNodeCtx<'a> {
                     } => {
                         let mut result = String::new();
 
-                        result.push_str(match typ {
-                            AggregationType::First => "first",
-                            AggregationType::Sum => "sum",
-                        });
+                        result.push_str(typ.get_name());
                         result.push_str("(");
                         result.push_str(self.get_calc_node_name(*col_id));
                         result.push_str(")");
@@ -517,6 +527,9 @@ impl<'a> CalcNodeCtx<'a> {
                         result
                     }
                     CalcNode::ColSpread(info) => self.get_calc_node_name(info.col_id).to_string(),
+                    CalcNode::WindowInnerCol(info) => {
+                        self.get_calc_node_name(info.in_col_id).to_string()
+                    }
                     _ => todo!("unimplemented for {:?}", self.get_calc_node(col_id)),
                 };
                 self.name_cache.insert(col_id, name);
@@ -799,6 +812,74 @@ impl<'a> CalcNodeCtx<'a> {
                     col_ids: ungrouped_col_ids,
                 })
             }
+            AstNodeType::Window(window_size, get_expr) => {
+                let window_size = *window_size;
+
+                let norm_input = self.normalize(ctx.parent_id);
+
+                let in_col_ids = self
+                    .get_calc_node_cols(norm_input)
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>();
+
+                let in_partition_id = self.get_partition_id(norm_input);
+
+                let inner_partition_id = self.add_calc_node(CalcNode::InnerWindowPartition(
+                    CalcNodeInnerWindowPartition {
+                        in_partition_id,
+                        window_size,
+                    },
+                ));
+
+                let inner_col_ids = in_col_ids
+                    .iter()
+                    .cloned()
+                    .map(|col_id| {
+                        self.add_calc_node(CalcNode::WindowInnerCol(CalcNodeWindowInnerCol {
+                            in_col_id: col_id,
+                            inner_partition_id,
+                            window_size,
+                        }))
+                    })
+                    .collect::<Vec<_>>();
+
+                let inner_select_id = self.add_calc_node(CalcNode::Selects {
+                    col_ids: inner_col_ids,
+                });
+
+                let get_id = self.register_select_list(
+                    &RegisterAstNodeCtx {
+                        parent_id: inner_select_id,
+                    },
+                    get_expr,
+                );
+                let get_id = self.normalize(get_id);
+                let get_partition_id = self.get_partition_id(get_id);
+
+                let out_partition_id =
+                    self.add_calc_node(CalcNode::WindowUnpartition(CalcNodeWindowUnpartition {
+                        in_partition_id,
+                        get_partition_id,
+                        window_size,
+                    }));
+
+                let get_col_ids = self
+                    .get_calc_node_cols(get_id)
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>();
+
+                let get_col_ids = get_col_ids
+                    .iter()
+                    .cloned()
+                    .map(|col_id| self.repartition(col_id, out_partition_id))
+                    .collect::<Vec<_>>();
+
+                self.add_calc_node(CalcNode::Selects {
+                    col_ids: get_col_ids,
+                })
+            }
             AstNodeType::FcnCall { name, args } => {
                 let fcn_name = match name.get_type() {
                     AstNodeType::Identifier(fcn_name) => fcn_name.as_str(),
@@ -826,6 +907,11 @@ impl<'a> CalcNodeCtx<'a> {
                         let col_id = arg_ids[0];
                         self.add_aggregation(col_id, AggregationType::First)
                     }
+                    "last" => {
+                        assert_eq!(arg_ids.len(), 1);
+                        let col_id = arg_ids[0];
+                        self.add_aggregation(col_id, AggregationType::Last)
+                    }
                     "avg" => {
                         assert_eq!(arg_ids.len(), 1);
                         let col_id = arg_ids[0];
@@ -836,7 +922,7 @@ impl<'a> CalcNodeCtx<'a> {
 
                         self.add_division(sum_id, count_id)
                     }
-                    _ => todo!("Support function \"{}\"", fcn_name),
+                    _ => todo!("Add support for function \"{}\"", fcn_name),
                 }
             }
             AstNodeType::Add(left, right) => {
@@ -1219,6 +1305,21 @@ impl<'a> CalcNodeCtx<'a> {
                     CalcNode::Selects { col_ids: _ } => {
                         panic!("Invalid select for id={}", calc_node_id);
                     }
+                    CalcNode::InnerWindowPartition(info) => {
+                        let info = info.clone();
+                        let in_partition = self.eval_partition(info.in_partition_id);
+                        CalcResult::Partition(in_partition.get_window_partition(info.window_size))
+                    }
+                    CalcNode::WindowInnerCol(info) => {
+                        let info = info.clone();
+                        let in_partition_id = self.get_partition_id(info.in_col_id);
+                        let in_partition = self.eval_partition(in_partition_id).clone();
+                        let in_col = self.eval_column(info.in_col_id);
+
+                        CalcResult::Column(
+                            in_col.repeat_for_window(info.window_size, &in_partition),
+                        )
+                    }
                     _ => todo!("unimplemented for {:?}", self.get_calc_node(calc_node_id)),
                 };
                 self.result_cache.insert(calc_node_id, result);
@@ -1307,6 +1408,29 @@ enum CalcNode {
     GetUngroupPartition(CalcNodeGetUngroupPartition),
     LimitRowIndexes(PartitionId, usize),
     AggregatedPartition(PartitionLevel),
+    InnerWindowPartition(CalcNodeInnerWindowPartition),
+    WindowInnerCol(CalcNodeWindowInnerCol),
+    WindowUnpartition(CalcNodeWindowUnpartition),
+}
+
+#[derive(Debug, PartialEq, Hash, Clone)]
+struct CalcNodeWindowUnpartition {
+    in_partition_id: CalcNodeId,
+    get_partition_id: CalcNodeId,
+    window_size: usize,
+}
+
+#[derive(Debug, PartialEq, Hash, Clone)]
+struct CalcNodeWindowInnerCol {
+    in_col_id: CalcNodeId,
+    inner_partition_id: CalcNodeId,
+    window_size: usize,
+}
+
+#[derive(Debug, PartialEq, Hash, Clone)]
+struct CalcNodeInnerWindowPartition {
+    in_partition_id: CalcNodeId,
+    window_size: usize,
 }
 
 #[derive(Debug, PartialEq, Hash, Clone)]

@@ -775,4 +775,64 @@ mod tests {
             )
         );
     }
+
+    #[test]
+    fn basic_window() {
+        let table = Table::from_json_str(
+            r#"
+            {
+                "columns": [
+                    {
+                        "name": "id0",
+                        "type": "text",
+                        "values": ["id0", "id1", "id2", "id3", "id4", "id5"]
+                    },
+                    {
+                        "name": "val",
+                        "type": "float64",
+                        "values": ["1", "2", "3", "4", "5", "6"]
+                    }
+                ]
+            }
+            "#,
+        );
+
+        let mut collection = TableCollection::new();
+        collection.add_table("tbl0", table);
+
+        let result = collection
+            .query(
+                r#"
+                from tbl0
+                window 3 get
+                    first(id0) as first_id,
+                    last(id0) as last_id,
+                    sum(val) as val
+                "#,
+            )
+            .unwrap();
+
+        assert_eq!(
+            result,
+            Table::from_json_str(
+                r#"{"columns":[
+                    {
+                        "name": "first_id",
+                        "type": "text",
+                        "values": ["id0", "id1", "id2", "id3"]
+                    },
+                    {
+                        "name": "last_id",
+                        "type": "text",
+                        "values": ["id2", "id3", "id4", "id5"]
+                    },
+                    {
+                        "name": "val",
+                        "type": "float64",
+                        "values": ["6", "9", "12", "15"]
+                    }
+                ]}"#
+            )
+        );
+    }
 }

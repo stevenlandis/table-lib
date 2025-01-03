@@ -1513,11 +1513,6 @@ struct CalcNodeCount {
     out_partition_id: PartitionId,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Hash)]
-struct CalcNodeLimitColumn {
-    col_id: CalcNodeId,
-    row_indexes_id: CalcNodeId,
-}
 #[derive(Debug, Clone, PartialEq, Hash)]
 struct CalcNodeTableCol {
     table_name: String,

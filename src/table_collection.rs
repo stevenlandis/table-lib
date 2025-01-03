@@ -455,12 +455,23 @@ impl<'a> CalcNodeCtx<'a> {
                     CalcNode::GetUngroupPartition(_) => node_id,
                     CalcNode::WindowInnerCol(info) => info.inner_partition_id,
                     CalcNode::InnerWindowPartition(_) => node_id,
+                    CalcNode::AggregatedPartition(_) => node_id,
                     _ => todo!("Unimplemented for {:?}", self.get_calc_node(node_id)),
                 };
                 self.calc_node_to_partition_id.insert(node_id, result);
                 result
             }
             Some(result) => *result,
+        }
+    }
+
+    fn get_count_partition_id(&mut self, node_id: CalcNodeId) -> PartitionId {
+        match self.get_calc_node(node_id) {
+            CalcNode::CountPartition {
+                source_id: _,
+                count_partition_id,
+            } => *count_partition_id,
+            _ => self.get_partition_id(node_id),
         }
     }
 
@@ -521,6 +532,7 @@ impl<'a> CalcNodeCtx<'a> {
                     CalcNode::WindowInnerCol(info) => {
                         self.get_calc_node_name(info.in_col_id).to_string()
                     }
+                    CalcNode::Count(_) => "count()".to_string(),
                     _ => todo!("unimplemented for {:?}", self.get_calc_node(col_id)),
                 };
                 self.name_cache.insert(col_id, name);
@@ -582,6 +594,15 @@ impl<'a> CalcNodeCtx<'a> {
                         partition_id: _,
                     } => {
                         cols.push(id);
+                    }
+                    CalcNode::Count(_) => {
+                        cols.push(id);
+                    }
+                    CalcNode::CountPartition {
+                        source_id,
+                        count_partition_id: _,
+                    } => {
+                        cols.extend(self.get_calc_node_cols(*source_id));
                     }
                     _ => todo!("unimplemented for {:?}", self.get_calc_node(id)),
                 };
@@ -776,6 +797,10 @@ impl<'a> CalcNodeCtx<'a> {
                     .cloned()
                     .collect::<Vec<_>>();
                 let base_select_node = self.add_selects(all_select_col_ids);
+                let base_select_node = self.add_calc_node(CalcNode::CountPartition {
+                    source_id: base_select_node,
+                    count_partition_id: partition_node,
+                });
 
                 let select_stmt = self.register_select_list(
                     &RegisterAstNodeCtx {
@@ -912,6 +937,11 @@ impl<'a> CalcNodeCtx<'a> {
                         let count_id = self.add_count(in_part_id);
 
                         self.add_division(sum_id, count_id)
+                    }
+                    "count" => {
+                        assert_eq!(arg_ids.len(), 0);
+                        let in_part_id = self.get_count_partition_id(ctx.parent_id);
+                        self.add_count(in_part_id)
                     }
                     _ => todo!("Add support for function \"{}\"", fcn_name),
                 }
@@ -1412,6 +1442,11 @@ enum CalcNode {
     GroupByPartition {
         // A partition calculated from all columns on a table
         source_id: CalcNodeId,
+    },
+    CountPartition {
+        // A special node that assigns a custom count partition id
+        source_id: CalcNodeId,
+        count_partition_id: PartitionId,
     },
     ReOrderAndRePartition(ReOrderAndRePartition),
     Aggregation {

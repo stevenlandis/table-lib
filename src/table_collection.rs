@@ -943,6 +943,16 @@ impl<'a> CalcNodeCtx<'a> {
                         let in_part_id = self.get_count_partition_id(ctx.parent_id);
                         self.add_count(in_part_id)
                     }
+                    "min" => {
+                        assert_eq!(arg_ids.len(), 1);
+                        let col_id = arg_ids[0];
+                        self.add_aggregation(col_id, AggregationType::Min)
+                    }
+                    "max" => {
+                        assert_eq!(arg_ids.len(), 1);
+                        let col_id = arg_ids[0];
+                        self.add_aggregation(col_id, AggregationType::Max)
+                    }
                     _ => todo!("Add support for function \"{}\"", fcn_name),
                 }
             }

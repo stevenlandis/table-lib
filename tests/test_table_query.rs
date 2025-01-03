@@ -959,4 +959,51 @@ mod tests {
             )
         );
     }
+
+    #[test]
+    fn basic_min_and_max() {
+        let table = Table::from_json_str(
+            r#"
+            {
+                "columns": [
+                    {
+                        "name": "val",
+                        "type": "float64",
+                        "values": ["0", "2", "1"]
+                    }
+                ]
+            }
+            "#,
+        );
+
+        let mut collection = TableCollection::new();
+        collection.add_table("tbl0", table);
+
+        let result = collection
+            .query(
+                r#"
+                from tbl0
+                get min(val), max(val)
+                "#,
+            )
+            .unwrap();
+
+        assert_eq!(
+            result,
+            Table::from_json_str(
+                r#"{"columns":[
+                    {
+                        "name": "min(val)",
+                        "type": "float64",
+                        "values": ["0"]
+                    },
+                    {
+                        "name": "max(val)",
+                        "type": "float64",
+                        "values": ["2"]
+                    }
+                ]}"#
+            )
+        );
+    }
 }

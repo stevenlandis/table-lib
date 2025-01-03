@@ -952,6 +952,54 @@ impl InnerColumn {
                     panic!("Unsupported LAST agg for this col type");
                 }
             },
+            AggregationType::Min => match &self.values {
+                ColumnValues::Float64(values) => {
+                    let mut out_nulls = BitVec::new();
+                    let mut out_values = Vec::<f64>::with_capacity(partition.n_spans());
+                    for span in partition {
+                        let mut val = f64::MAX;
+                        for row_idx in span {
+                            if !self.nulls.at(row_idx) {
+                                val = val.min(values.values[row_idx]);
+                            }
+                        }
+                        out_nulls.push(false);
+                        out_values.push(val);
+                    }
+
+                    InnerColumn {
+                        nulls: out_nulls,
+                        values: ColumnValues::Float64(Float64ColumnValues { values: out_values }),
+                    }
+                }
+                _ => {
+                    panic!("Unsupported agg for this col type");
+                }
+            },
+            AggregationType::Max => match &self.values {
+                ColumnValues::Float64(values) => {
+                    let mut out_nulls = BitVec::new();
+                    let mut out_values = Vec::<f64>::with_capacity(partition.n_spans());
+                    for span in partition {
+                        let mut val = f64::MIN;
+                        for row_idx in span {
+                            if !self.nulls.at(row_idx) {
+                                val = val.max(values.values[row_idx]);
+                            }
+                        }
+                        out_nulls.push(false);
+                        out_values.push(val);
+                    }
+
+                    InnerColumn {
+                        nulls: out_nulls,
+                        values: ColumnValues::Float64(Float64ColumnValues { values: out_values }),
+                    }
+                }
+                _ => {
+                    panic!("Unsupported agg for this col type");
+                }
+            },
         };
     }
 
@@ -1025,6 +1073,60 @@ impl InnerColumn {
                 }
                 _ => {
                     panic!("Unsupported FIRST agg for this col type");
+                }
+            },
+            AggregationType::Min => match &self.values {
+                ColumnValues::Float64(values) => {
+                    let mut out_nulls = BitVec::new();
+                    let mut out_values = Vec::<f64>::with_capacity(groups.len());
+                    for group in groups {
+                        let mut has_non_null = false;
+                        let mut val = f64::MAX;
+                        for group_row_idx in group.start_idx..(group.start_idx + group.len) {
+                            let row_idx = row_indexes[group_row_idx];
+                            if !self.nulls.at(row_idx) {
+                                has_non_null = true;
+                                val = val.min(values.values[row_idx]);
+                            }
+                        }
+                        out_nulls.push(!has_non_null);
+                        out_values.push(val);
+                    }
+
+                    InnerColumn {
+                        nulls: out_nulls,
+                        values: ColumnValues::Float64(Float64ColumnValues { values: out_values }),
+                    }
+                }
+                _ => {
+                    panic!("Unsupported agg for this col type");
+                }
+            },
+            AggregationType::Max => match &self.values {
+                ColumnValues::Float64(values) => {
+                    let mut out_nulls = BitVec::new();
+                    let mut out_values = Vec::<f64>::with_capacity(groups.len());
+                    for group in groups {
+                        let mut has_non_null = false;
+                        let mut val = f64::MIN;
+                        for group_row_idx in group.start_idx..(group.start_idx + group.len) {
+                            let row_idx = row_indexes[group_row_idx];
+                            if !self.nulls.at(row_idx) {
+                                has_non_null = true;
+                                val = val.max(values.values[row_idx]);
+                            }
+                        }
+                        out_nulls.push(!has_non_null);
+                        out_values.push(val);
+                    }
+
+                    InnerColumn {
+                        nulls: out_nulls,
+                        values: ColumnValues::Float64(Float64ColumnValues { values: out_values }),
+                    }
+                }
+                _ => {
+                    panic!("Unsupported agg for this col type");
                 }
             },
         };
@@ -1517,6 +1619,8 @@ pub enum AggregationType {
     Sum,
     First,
     Last,
+    Min,
+    Max,
 }
 
 impl AggregationType {
@@ -1525,6 +1629,8 @@ impl AggregationType {
             AggregationType::First => "first",
             AggregationType::Last => "last",
             AggregationType::Sum => "sum",
+            AggregationType::Min => "min",
+            AggregationType::Max => "max",
         }
     }
 }

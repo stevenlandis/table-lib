@@ -807,7 +807,8 @@ mod tests {
                 window 3 get
                     first(id0) as first_id,
                     last(id0) as last_id,
-                    sum(val) as val
+                    sum(val) as val,
+                    last(val) - first(val) as delta
                 "#,
             )
             .unwrap();
@@ -830,6 +831,11 @@ mod tests {
                         "name": "val",
                         "type": "float64",
                         "values": ["6", "9", "12", "15"]
+                    },
+                    {
+                        "name": "delta",
+                        "type": "float64",
+                        "values": ["2", "2", "2", "2"]
                     }
                 ]}"#
             )

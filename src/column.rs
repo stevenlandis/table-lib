@@ -557,6 +557,16 @@ impl std::ops::Add for &Column {
     }
 }
 
+impl std::ops::Sub for &Column {
+    type Output = Column;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Column {
+            col: Rc::new(self.col.sub(&rhs.col)),
+        }
+    }
+}
+
 impl std::ops::Div for &Column {
     type Output = Column;
 
@@ -1160,6 +1170,30 @@ impl InnerColumn {
                     values: ColumnValues::Float64(Float64ColumnValues {
                         values: zip(&inner_col.values, &other_inner_col.values)
                             .map(|(left, right)| left + right)
+                            .collect(),
+                    }),
+                },
+                _ => {
+                    panic!("unsupported");
+                }
+            },
+            _ => {
+                panic!("unsupported");
+            }
+        };
+    }
+
+    pub fn sub(&self, other: &InnerColumn) -> InnerColumn {
+        assert_eq!(self.len(), other.len());
+        return match &self.values {
+            ColumnValues::Float64(inner_col) => match &other.values {
+                ColumnValues::Float64(other_inner_col) => InnerColumn {
+                    nulls: zip(&self.nulls, &other.nulls)
+                        .map(|(left, right)| left || right)
+                        .collect(),
+                    values: ColumnValues::Float64(Float64ColumnValues {
+                        values: zip(&inner_col.values, &other_inner_col.values)
+                            .map(|(left, right)| left - right)
                             .collect(),
                     }),
                 },

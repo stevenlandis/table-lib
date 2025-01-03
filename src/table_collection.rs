@@ -142,18 +142,30 @@ impl<'a> CalcNodeCtx<'a> {
         }
     }
 
+    fn get_left_right_partition_level(
+        &mut self,
+        left: CalcNodeId,
+        right: CalcNodeId,
+    ) -> PartitionLevel {
+        let left_level = self.get_partition_level(left);
+        let right_level = self.get_partition_level(right);
+        assert_eq!(left_level, right_level);
+        left_level
+    }
+
     fn get_partition_level(&mut self, calc_node_id: CalcNodeId) -> PartitionLevel {
         match self.calc_node_to_part_level.get(&calc_node_id) {
             None => {
                 let level = match self.get_calc_node(calc_node_id) {
                     CalcNode::TableCol(info) => self.get_partition_level(info.partition_id),
                     CalcNode::Add(left, right) => {
-                        let left = *left;
-                        let right = *right;
-                        let left_level = self.get_partition_level(left);
-                        let right_level = self.get_partition_level(right);
-                        assert_eq!(left_level, right_level);
-                        left_level
+                        self.get_left_right_partition_level(*left, *right)
+                    }
+                    CalcNode::Divide(left, right) => {
+                        self.get_left_right_partition_level(*left, *right)
+                    }
+                    CalcNode::Subtract(left, right) => {
+                        self.get_left_right_partition_level(*left, *right)
                     }
                     CalcNode::Literal(_) => ROOT_PARTITION_LEVEL,
                     CalcNode::ColSpread(info) => self.get_partition_level(info.result_partition_id),
@@ -187,14 +199,6 @@ impl<'a> CalcNodeCtx<'a> {
                     } => self.get_partition_level(*partition_id),
                     CalcNode::AggregatedPartition(partition_level) => *partition_level,
                     CalcNode::Count(info) => self.get_partition_level(info.out_partition_id),
-                    CalcNode::Divide(left, right) => {
-                        let left = *left;
-                        let right = *right;
-                        let left_level = self.get_partition_level(left);
-                        let right_level = self.get_partition_level(right);
-                        assert_eq!(left_level, right_level);
-                        left_level
-                    }
                     CalcNode::PartitionFromRowIndexes(partition_id, _) => {
                         self.get_partition_level(*partition_id)
                     }
@@ -238,9 +242,13 @@ impl<'a> CalcNodeCtx<'a> {
         return false;
     }
 
-    // fn spread_col(&mut self, col_id: CalcNodeId, new_part_level: PartitionLevel) -> CalcNodeId {
-    //     self.add_calc_node(CalcNode::ColSpread(col_id, new_part_level))
-    // }
+    fn is_scalar_left_right(&mut self, left: CalcNodeId, right: CalcNodeId) -> bool {
+        let left_is_scalar = self.is_scalar(left);
+        let right_is_scalar = self.is_scalar(right);
+
+        assert_eq!(left_is_scalar, right_is_scalar);
+        left_is_scalar
+    }
 
     fn is_scalar(&mut self, node_id: CalcNodeId) -> bool {
         match self.calc_node_to_is_scalar.get(&node_id) {
@@ -248,15 +256,9 @@ impl<'a> CalcNodeCtx<'a> {
                 let result: bool = match self.get_calc_node(node_id) {
                     CalcNode::TableCol(info) => self.is_scalar(info.partition_id),
                     CalcNode::TablePartition(_) => false,
-                    CalcNode::Add(left, right) => {
-                        let left = *left;
-                        let right = *right;
-                        let left_is_scalar = self.is_scalar(left);
-                        let right_is_scalar = self.is_scalar(right);
-
-                        assert_eq!(left_is_scalar, right_is_scalar);
-                        left_is_scalar
-                    }
+                    CalcNode::Add(left, right) => self.is_scalar_left_right(*left, *right),
+                    CalcNode::Divide(left, right) => self.is_scalar_left_right(*left, *right),
+                    CalcNode::Subtract(left, right) => self.is_scalar_left_right(*left, *right),
                     CalcNode::ColSpread(info) => self.is_scalar(info.col_id),
                     CalcNode::Literal(_) => true,
                     CalcNode::SpreadScalarCol(_, _) => false,
@@ -281,14 +283,6 @@ impl<'a> CalcNodeCtx<'a> {
                     CalcNode::GroupByPartition { source_id: _ } => false,
                     CalcNode::Count(_) => true,
                     CalcNode::AggregatedPartition(_) => true,
-                    CalcNode::Divide(left, right) => {
-                        let left = *left;
-                        let right = *right;
-                        let left_scalar = self.is_scalar(left);
-                        let right_scalar = self.is_scalar(right);
-                        assert_eq!(left_scalar, right_scalar);
-                        left_scalar
-                    }
                     CalcNode::GetUngroupPartition(info) => self.is_scalar(info.result_id),
                     CalcNode::PartitionFromRowIndexes(partition_id, _) => {
                         self.is_scalar(*partition_id)
@@ -416,19 +410,25 @@ impl<'a> CalcNodeCtx<'a> {
         col_ids
     }
 
+    fn get_left_right_partition_id(&mut self, left: CalcNodeId, right: CalcNodeId) -> PartitionId {
+        let left_is_scalar = self.get_partition_id(left);
+        let right_is_scalar = self.get_partition_id(right);
+        assert_eq!(left_is_scalar, right_is_scalar);
+        left_is_scalar
+    }
+
     fn get_partition_id(&mut self, node_id: CalcNodeId) -> PartitionId {
         match self.calc_node_to_partition_id.get(&node_id) {
             None => {
                 let result: PartitionId = match self.get_calc_node(node_id) {
                     CalcNode::TableCol(info) => info.partition_id,
                     CalcNode::TablePartition(_) => node_id,
-                    CalcNode::Add(left, right) => {
-                        let left = *left;
-                        let right = *right;
-                        let left_is_scalar = self.get_partition_id(left);
-                        let right_is_scalar = self.get_partition_id(right);
-                        assert_eq!(left_is_scalar, right_is_scalar);
-                        left_is_scalar
+                    CalcNode::Add(left, right) => self.get_left_right_partition_id(*left, *right),
+                    CalcNode::Divide(left, right) => {
+                        self.get_left_right_partition_id(*left, *right)
+                    }
+                    CalcNode::Subtract(left, right) => {
+                        self.get_left_right_partition_id(*left, *right)
                     }
                     CalcNode::SpreadScalarCol(_, partition_id) => *partition_id,
                     CalcNode::ColSpread(info) => info.result_partition_id,
@@ -450,15 +450,6 @@ impl<'a> CalcNodeCtx<'a> {
                         partition_id,
                     } => *partition_id,
                     CalcNode::Count(info) => info.out_partition_id,
-                    CalcNode::Divide(left, right) => {
-                        let left = *left;
-                        let right = *right;
-                        let left_id = self.get_partition_id(left);
-                        let right_id = self.get_partition_id(right);
-
-                        assert_eq!(left_id, right_id);
-                        left_id
-                    }
                     CalcNode::Literal(_) => self.add_calc_node(CalcNode::ScalarPartition),
                     CalcNode::GroupByPartition { source_id: _ } => node_id,
                     CalcNode::GetUngroupPartition(_) => node_id,
@@ -931,6 +922,12 @@ impl<'a> CalcNodeCtx<'a> {
                 let normalized_cols = self.normalize_cols(vec![left_id, right_id]);
                 self.add_calc_node(CalcNode::Add(normalized_cols[0], normalized_cols[1]))
             }
+            AstNodeType::Subtract(left, right) => {
+                let left_id = self.register_ast_node(ctx, left);
+                let right_id = self.register_ast_node(ctx, right);
+                let normalized_cols = self.normalize_cols(vec![left_id, right_id]);
+                self.add_calc_node(CalcNode::Subtract(normalized_cols[0], normalized_cols[1]))
+            }
             AstNodeType::Integer(val) => {
                 self.add_calc_node(CalcNode::Literal(CalcNodeLiteral::Integer(*val)))
             }
@@ -1155,6 +1152,18 @@ impl<'a> CalcNodeCtx<'a> {
                         assert_eq!(partition_id, self.get_partition_id(right_id));
 
                         CalcResult::Column(&left_col + &right_col)
+                    }
+                    CalcNode::Subtract(left_id, right_id) => {
+                        let left_id = *left_id;
+                        let right_id = *right_id;
+
+                        let left_col = self.eval_column(left_id).clone();
+                        let right_col = self.eval_column(right_id).clone();
+
+                        let partition_id = self.get_partition_id(left_id);
+                        assert_eq!(partition_id, self.get_partition_id(right_id));
+
+                        CalcResult::Column(&left_col - &right_col)
                     }
                     CalcNode::Divide(left_id, right_id) => {
                         let left_id = *left_id;
@@ -1398,6 +1407,7 @@ enum CalcNode {
     },
     Count(CalcNodeCount),
     Add(CalcNodeId, CalcNodeId),
+    Subtract(CalcNodeId, CalcNodeId),
     Divide(CalcNodeId, CalcNodeId),
     Literal(CalcNodeLiteral),
     Alias(CalcNodeId, String),

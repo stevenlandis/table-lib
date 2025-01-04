@@ -901,9 +901,16 @@ impl InnerColumn {
                     let mut out_nulls = BitVec::new();
                     let mut out_values = Vec::<f64>::with_capacity(partition.n_spans());
                     for span in partition {
-                        let first_row_idx = span.into_iter().nth(0).unwrap();
-                        out_nulls.push(self.nulls.at(first_row_idx));
-                        out_values.push(values.values[first_row_idx]);
+                        match span.into_iter().nth(0) {
+                            None => {
+                                out_nulls.push(true);
+                                out_values.push(0.0);
+                            }
+                            Some(first_row_idx) => {
+                                out_nulls.push(self.nulls.at(first_row_idx));
+                                out_values.push(values.values[first_row_idx]);
+                            }
+                        }
                     }
 
                     InnerColumn {
@@ -915,11 +922,17 @@ impl InnerColumn {
                     let mut builder = TextColBuilder::new(partition.n_spans());
 
                     for span in partition {
-                        let first_row_idx = span.into_iter().nth(0).unwrap();
-                        if self.nulls.at(first_row_idx) {
-                            builder.add_null();
-                        } else {
-                            builder.add_value(values.get_str_at_idx(first_row_idx));
+                        match span.into_iter().nth(0) {
+                            None => {
+                                builder.add_null();
+                            }
+                            Some(first_row_idx) => {
+                                if self.nulls.at(first_row_idx) {
+                                    builder.add_null();
+                                } else {
+                                    builder.add_value(values.get_str_at_idx(first_row_idx));
+                                }
+                            }
                         }
                     }
 
@@ -934,9 +947,16 @@ impl InnerColumn {
                     let mut out_nulls = BitVec::new();
                     let mut out_values = Vec::<f64>::with_capacity(partition.n_spans());
                     for span in partition {
-                        let first_row_idx = span.into_iter().last().unwrap();
-                        out_nulls.push(self.nulls.at(first_row_idx));
-                        out_values.push(values.values[first_row_idx]);
+                        match span.into_iter().last() {
+                            None => {
+                                out_nulls.push(true);
+                                out_values.push(0.0);
+                            }
+                            Some(first_row_idx) => {
+                                out_nulls.push(self.nulls.at(first_row_idx));
+                                out_values.push(values.values[first_row_idx]);
+                            }
+                        }
                     }
 
                     InnerColumn {
@@ -948,11 +968,17 @@ impl InnerColumn {
                     let mut builder = TextColBuilder::new(partition.n_spans());
 
                     for span in partition {
-                        let first_row_idx = span.into_iter().last().unwrap();
-                        if self.nulls.at(first_row_idx) {
-                            builder.add_null();
-                        } else {
-                            builder.add_value(values.get_str_at_idx(first_row_idx));
+                        match span.into_iter().last() {
+                            None => {
+                                builder.add_null();
+                            }
+                            Some(first_row_idx) => {
+                                if self.nulls.at(first_row_idx) {
+                                    builder.add_null();
+                                } else {
+                                    builder.add_value(values.get_str_at_idx(first_row_idx));
+                                }
+                            }
                         }
                     }
 

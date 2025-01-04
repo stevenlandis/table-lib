@@ -1100,4 +1100,74 @@ mod tests {
             )
         );
     }
+
+    #[test]
+    fn aggregate_empty_partition() {
+        let table = Table::from_json_str(
+            r#"
+            {
+                "columns": [
+                    {
+                        "name": "id",
+                        "type": "text",
+                        "values": ["id0", "id1", "id1", "id0", "id2", "id3", "id3", "id0"]
+                    },
+                    {
+                        "name": "include",
+                        "type": "bool",
+                        "values": ["true", "true", "true", "false", "false", "true", "true", "true"]
+                    },
+                    {
+                        "name": "val1",
+                        "type": "float64",
+                        "values": ["1", "2", "3", "4", "5", "6", "7", "8"]
+                    }
+                ]
+            }
+            "#,
+        );
+
+        let mut collection = TableCollection::new();
+        collection.add_table("tbl0", table);
+
+        let result = collection
+            .query(
+                r#"
+                from tbl0
+                group by id get id, (
+                    where include
+                    get first(val1), last(val1), sum(val1)
+                )
+                "#,
+            )
+            .unwrap();
+
+        assert_eq!(
+            result,
+            Table::from_json_str(
+                r#"{"columns":[
+                    {
+                        "name": "id",
+                        "type": "text",
+                        "values": ["id0", "id1", "id2", "id3"]
+                    },
+                    {
+                        "name": "first(val1)",
+                        "type": "float64",
+                        "values": ["1", "2", null, "6"]
+                    },
+                    {
+                        "name": "last(val1)",
+                        "type": "float64",
+                        "values": ["8", "3", null, "7"]
+                    },
+                    {
+                        "name": "sum(val1)",
+                        "type": "float64",
+                        "values": ["9", "5", "0", "13"]
+                    }
+                ]}"#
+            )
+        );
+    }
 }

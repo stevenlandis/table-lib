@@ -463,6 +463,7 @@ impl<'a> CalcNodeCtx<'a> {
                     CalcNode::WindowInnerCol(info) => info.inner_partition_id,
                     CalcNode::InnerWindowPartition(_) => node_id,
                     CalcNode::AggregatedPartition(_) => node_id,
+                    CalcNode::PartitionFromRowIndexes(_, _) => node_id,
                     _ => todo!("Unimplemented for {:?}", self.get_calc_node(node_id)),
                 };
                 self.calc_node_to_partition_id.insert(node_id, result);

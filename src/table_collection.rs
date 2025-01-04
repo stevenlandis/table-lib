@@ -475,6 +475,22 @@ impl<'a> CalcNodeCtx<'a> {
         }
     }
 
+    fn get_left_right_name(
+        &mut self,
+        left: CalcNodeId,
+        right: CalcNodeId,
+        separator: &str,
+    ) -> String {
+        let mut result = String::new();
+        result.push_str("(");
+        result.push_str(self.get_calc_node_name(left));
+        result.push_str(separator);
+        result.push_str(self.get_calc_node_name(right));
+        result.push_str(")");
+
+        result
+    }
+
     fn get_calc_node_name(&mut self, col_id: CalcNodeId) -> &str {
         match self.name_cache.get(&col_id) {
             None => {
@@ -483,19 +499,11 @@ impl<'a> CalcNodeCtx<'a> {
                     CalcNode::GroupByPartition { source_id } => {
                         self.get_calc_node_name(*source_id).to_string()
                     }
-                    CalcNode::Add(left, right) => {
-                        let left = *left;
-                        let right = *right;
-
-                        let mut result = String::new();
-                        result.push_str("(");
-                        result.push_str(self.get_calc_node_name(left));
-                        result.push_str(" + ");
-                        result.push_str(self.get_calc_node_name(right));
-                        result.push_str(")");
-
-                        result
+                    CalcNode::Add(left, right) => self.get_left_right_name(*left, *right, " + "),
+                    CalcNode::Subtract(left, right) => {
+                        self.get_left_right_name(*left, *right, " + ")
                     }
+                    CalcNode::Divide(left, right) => self.get_left_right_name(*left, *right, " / "),
                     CalcNode::Literal(literal) => match literal {
                         CalcNodeLiteral::Integer(val) => val.to_string(),
                         CalcNodeLiteral::Float64(val) => val.val.to_string(),
@@ -571,6 +579,9 @@ impl<'a> CalcNodeCtx<'a> {
                         }))
                     }
                     CalcNode::Add(_, _) => {
+                        cols.push(id);
+                    }
+                    CalcNode::Divide(_, _) => {
                         cols.push(id);
                     }
                     CalcNode::Literal(_) => {
@@ -967,6 +978,12 @@ impl<'a> CalcNodeCtx<'a> {
                 let right_id = self.register_ast_node(ctx, right);
                 let normalized_cols = self.normalize_cols(vec![left_id, right_id]);
                 self.add_calc_node(CalcNode::Subtract(normalized_cols[0], normalized_cols[1]))
+            }
+            AstNodeType::Divide(left, right) => {
+                let left_id = self.register_ast_node(ctx, left);
+                let right_id = self.register_ast_node(ctx, right);
+                let normalized_cols = self.normalize_cols(vec![left_id, right_id]);
+                self.add_calc_node(CalcNode::Divide(normalized_cols[0], normalized_cols[1]))
             }
             AstNodeType::Integer(val) => {
                 self.add_calc_node(CalcNode::Literal(CalcNodeLiteral::Integer(*val)))

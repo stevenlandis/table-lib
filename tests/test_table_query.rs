@@ -1006,4 +1006,51 @@ mod tests {
             )
         );
     }
+
+    #[test]
+    fn basic_divide() {
+        let table = Table::from_json_str(
+            r#"
+            {
+                "columns": [
+                    {
+                        "name": "val0",
+                        "type": "float64",
+                        "values": ["8", "1", "0", "2", null, null]
+                    },
+                    {
+                        "name": "val1",
+                        "type": "float64",
+                        "values": ["2", "0", "1", null, "2", null]
+                    }
+                ]
+            }
+            "#,
+        );
+
+        let mut collection = TableCollection::new();
+        collection.add_table("tbl0", table);
+
+        let result = collection
+            .query(
+                r#"
+                from tbl0
+                get val0 / val1
+                "#,
+            )
+            .unwrap();
+
+        assert_eq!(
+            result,
+            Table::from_json_str(
+                r#"{"columns":[
+                    {
+                        "name": "(val0 / val1)",
+                        "type": "float64",
+                        "values": ["4", null, "0", null, null, null]
+                    }
+                ]}"#
+            )
+        );
+    }
 }

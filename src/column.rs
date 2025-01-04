@@ -567,6 +567,16 @@ impl std::ops::Sub for &Column {
     }
 }
 
+impl std::ops::Mul for &Column {
+    type Output = Column;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        Column {
+            col: Rc::new(self.col.mul(&rhs.col)),
+        }
+    }
+}
+
 impl std::ops::Div for &Column {
     type Output = Column;
 
@@ -1307,6 +1317,39 @@ impl InnerColumn {
                 panic!("unsupported");
             }
         };
+    }
+
+    pub fn mul(&self, other: &InnerColumn) -> InnerColumn {
+        assert_eq!(self.len(), other.len());
+        match &self.values {
+            ColumnValues::Float64(inner_col) => match &other.values {
+                ColumnValues::Float64(other_inner_col) => {
+                    let mut nulls = BitVec::with_capacity(self.len());
+                    let mut values = Vec::<f64>::with_capacity(self.len());
+
+                    for ((left_null, left_val), (right_null, right_val)) in zip(
+                        zip(&self.nulls, inner_col.values.iter().cloned()),
+                        zip(&other.nulls, other_inner_col.values.iter().cloned()),
+                    ) {
+                        let is_null = left_null || right_null;
+                        let value = if is_null { 0.0 } else { left_val * right_val };
+                        nulls.push(is_null);
+                        values.push(value);
+                    }
+
+                    InnerColumn {
+                        nulls,
+                        values: ColumnValues::Float64(Float64ColumnValues { values }),
+                    }
+                }
+                _ => {
+                    panic!("unsupported");
+                }
+            },
+            _ => {
+                panic!("unsupported");
+            }
+        }
     }
 
     pub fn div(&self, other: &InnerColumn) -> InnerColumn {
